@@ -91,7 +91,8 @@ re-tagged on the way.
 boxed with its type. It's used only after narrowing: `match` (type patterns `n: int`, `null`;
 a `_` arm is required, since there are infinitely many types), `is`, or a checked `as` that
 panics when the value has another type. A class object is kept as itself, so `x: Animal` also
-matches a `Dog`. Nothing else applies to an `unknown` (no members, operators or string form).
+matches a `Dog`, and a test for an interface matches the classes, structs and enums that
+implement it (`x: Named` matches a `User` that `implements Named`). Nothing else applies to an `unknown` (no members, operators or string form).
 ```ts
 function describe(u: unknown): string {
   match (u) {

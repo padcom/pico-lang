@@ -100,41 +100,58 @@ pub fn lower(
     // Show functions may need more instances and the other way round.
     let mut next = 0;
     let mut synth_fns: Vec<mir::Function> = Vec::new();
-    while next < cx.instances.len() || synth_fns.len() < cx.synths.len() {
-        if next == cx.instances.len() {
-            cx.cur_subst = Vec::new();
-            let (what, id) = cx.synths[synth_fns.len()].clone();
-            synth_fns.push(cx.synth_function(&what, id));
-            continue;
-        }
-        let (id, subst) = cx.instances[next].clone();
-        // The instance's types are the generic ones with `subst` applied as they're read
-        // (`Cx::sig`, `expr_ty`, …): copying the whole program's tables per substitution, as
-        // lowering once did, took gigabytes for large programs (#134).
-        cx.cur_subst = subst.clone();
-        cx.cur_mir = FnId((program.fns.len() + next) as u32);
-        let mut f = cx.function(id);
-        // `max<i64>`, `Stack<string>.push`, `Box<i64>.map<string>`.
-        let hir = program.func(id);
-        let shown = |args: &[Ty]| {
-            let parts: Vec<String> = args.iter().map(|t| t.to_string()).collect();
-            format!("<{}>", parts.join(", "))
-        };
-        let own = subst
-            .iter()
-            .find(|(o, _)| *o == id.0)
-            .map(|(_, a)| shown(a));
-        let ty = subst.iter().find(|(o, _)| *o != id.0);
-        f.name = match (ty, hir.owner) {
-            (Some((_, a)), Some(sid)) => {
-                let tname = &program.struct_def(sid).name;
-                let method = hir.name.rsplit('.').next().unwrap_or(&hir.name);
-                format!("{tname}{}.{method}{}", shown(a), own.unwrap_or_default())
+    // `unknown` tests list the types that went into `unknown` (#53): they're built again once
+    // everything else is, until that list stops growing.
+    let mut tests_saw: Option<usize> = None;
+    loop {
+        while next < cx.instances.len() || synth_fns.len() < cx.synths.len() {
+            if next == cx.instances.len() {
+                cx.cur_subst = Vec::new();
+                let (what, id) = cx.synths[synth_fns.len()].clone();
+                synth_fns.push(cx.synth_function(&what, id));
+                continue;
             }
-            _ => format!("{}{}", hir.name, own.unwrap_or_default()),
-        };
-        fns.push(f);
-        next += 1;
+            let (id, subst) = cx.instances[next].clone();
+            // The instance's types are the generic ones with `subst` applied as they're read
+            // (`Cx::sig`, `expr_ty`, …): copying the whole program's tables per substitution, as
+            // lowering once did, took gigabytes for large programs (#134).
+            cx.cur_subst = subst.clone();
+            cx.cur_mir = FnId((program.fns.len() + next) as u32);
+            let mut f = cx.function(id);
+            // `max<i64>`, `Stack<string>.push`, `Box<i64>.map<string>`.
+            let hir = program.func(id);
+            let shown = |args: &[Ty]| {
+                let parts: Vec<String> = args.iter().map(|t| t.to_string()).collect();
+                format!("<{}>", parts.join(", "))
+            };
+            let own = subst
+                .iter()
+                .find(|(o, _)| *o == id.0)
+                .map(|(_, a)| shown(a));
+            let ty = subst.iter().find(|(o, _)| *o != id.0);
+            f.name = match (ty, hir.owner) {
+                (Some((_, a)), Some(sid)) => {
+                    let tname = &program.struct_def(sid).name;
+                    let method = hir.name.rsplit('.').next().unwrap_or(&hir.name);
+                    format!("{tname}{}.{method}{}", shown(a), own.unwrap_or_default())
+                }
+                _ => format!("{}{}", hir.name, own.unwrap_or_default()),
+            };
+            fns.push(f);
+            next += 1;
+        }
+        let tests: Vec<usize> = (0..cx.synths.len())
+            .filter(|k| matches!(cx.synths[*k].0, Synth::UnknownTest(_)))
+            .collect();
+        if tests.is_empty() || tests_saw == Some(cx.unknown_tags.len()) {
+            break;
+        }
+        tests_saw = Some(cx.unknown_tags.len());
+        for k in tests {
+            cx.cur_subst = Vec::new();
+            let (what, id) = cx.synths[k].clone();
+            synth_fns[k] = cx.synth_function(&what, id);
+        }
     }
     cx.cur_subst = Vec::new();
     let mut worker_entries: Vec<FnId> = (0..worker_fns.len())
@@ -832,6 +849,9 @@ enum Synth {
     /// A call of C variadic extern `f` with extra arguments of these types: its parameters,
     /// then the extras (native code calls the C function; the interpreter panics).
     CVariadic(FnId, Vec<Ty>),
+    /// `(u: unknown) -> T?`: what an `unknown` holds as class or interface type `T`, or null
+    /// (#53). Built once the rest is lowered (it lists the types that went into `unknown`).
+    UnknownTest(Ty),
 }
 
 /// `s` as a JSON string literal (as `__jsonQuote` writes it).
@@ -1126,7 +1146,9 @@ impl Cx<'_> {
         let t = t.erase();
         match t {
             Ty::Null => 0,
-            Ty::Class(..) => 1,
+            // (A generic class's instance has its own: the object doesn't say its type
+            // arguments.)
+            Ty::Class(_, _, ref args) if args.is_empty() => 1,
             _ => match self.unknown_tags.iter().position(|x| *x == t) {
                 Some(i) => i as u32 + 2,
                 None => {
@@ -1209,7 +1231,7 @@ impl Cx<'_> {
             | Synth::FieldShow(t)
             | Synth::Debug(t) => t,
             Synth::Info { of, .. } => of,
-            Synth::JsonRead(t) | Synth::JsonWrite(t) => t,
+            Synth::JsonRead(t) | Synth::JsonWrite(t) | Synth::UnknownTest(t) => t,
             Synth::CVariadic(..) => &Ty::Void,
         };
         let span = match about {
@@ -1284,6 +1306,16 @@ impl Cx<'_> {
                 let this = b.temp(t.clone());
                 let v = b.debug_body(this, t, span);
                 (format!("{t}.<debug>"), vec![this], Ty::Str, Some(v))
+            }
+            Synth::UnknownTest(t) => {
+                let u = b.temp(Ty::Unknown);
+                let v = b.unknown_test_body(u, t, span);
+                (
+                    format!("{t}.<from unknown>"),
+                    vec![u],
+                    t.clone().nullable(),
+                    Some(v),
+                )
             }
             Synth::FieldShow(t) => {
                 let obj = b.temp(t.clone());
@@ -3498,15 +3530,195 @@ impl FnBuilder<'_, '_> {
         }
     }
 
-    /// Whether the `unknown` value `u` holds a `t` (#53): its tag, and for a class the
-    /// object's runtime class.
+    /// What the `unknown` value `u` holds as class or interface type `t`, or null (#53).
+    fn unknown_test(&mut self, u: Operand, t: &Ty, span: Span) -> Operand {
+        let f = self.cx.synth(Synth::UnknownTest(t.erase()));
+        let r = Place::local(self.temp(t.erase().nullable()));
+        self.call_into(f, vec![u], r.clone(), span);
+        Operand::Copy(r)
+    }
+
+    /// The body of `Synth::UnknownTest(t)`: the tags that can hold a `t`, each with how to get
+    /// it (#53). A class: an object of it or a subclass (`InstanceOf`; a generic one's
+    /// instances by their tags). An interface: a value of it, or of a class or struct
+    /// implementing it (as the interface).
+    fn unknown_test_body(&mut self, u: Local, t: &Ty, span: Span) -> Operand {
+        let p = self.cx.program;
+        let res = Place::local(self.temp(t.clone().nullable()));
+        self.assign(
+            res.clone(),
+            Rvalue::Use(Operand::Const(Const::Null(t.clone().nullable()))),
+            span,
+        );
+        let done = self.new_block();
+        let uo = || Operand::Copy(Place::local(u));
+        let tag = self.rvalue_to_temp(Rvalue::UnknownTag(uo()), Ty::Int(IntTy::U32), span);
+        // (Each candidate: the tag it has, the class to check with `InstanceOf` for tag 1, and
+        // the type the payload is.)
+        let mut cands: Vec<(u32, Option<Ty>, Ty)> = Vec::new();
+        let depth = |mut c: StructId| {
+            let mut d = 0;
+            while let Some(b) = p.struct_def(c).base {
+                d += 1;
+                c = b;
+            }
+            d
+        };
+        let (want_sid, want_args, iface) = match t {
+            Ty::Class(s, _, a) => (*s, a.to_vec(), false),
+            Ty::Iface(s, _, a) => (*s, a.to_vec(), true),
+            _ => unreachable!("unknown test for {t}"),
+        };
+        // Whether class or struct `s` (as `args`) is a `t`: a subclass, or an implementer.
+        let fits = |s: StructId, args: &[Ty]| -> bool {
+            let owner = Ty::type_owner(s);
+            let seen = if iface {
+                p.implements(s, want_sid)
+                    .then(|| p.iface_args(s, want_sid))
+                    .flatten()
+            } else {
+                p.base_args_of(s, want_sid)
+            };
+            seen.is_some_and(|a| {
+                a.iter().map(|x| x.subst(owner, args)).collect::<Vec<_>>() == want_args
+            })
+        };
+        if iface {
+            let k = self.cx.unknown_tag(t);
+            cands.push((k, None, t.clone()));
+        }
+        // Non-generic classes (tag 1), deepest first so a subclass's own table is used.
+        let mut classes: Vec<StructId> = (0..p.structs.len())
+            .map(|i| StructId(i as u32))
+            .filter(|s| {
+                let d = p.struct_def(*s);
+                d.is_class && !d.is_interface && d.generics.is_empty() && fits(*s, &[])
+            })
+            .collect();
+        classes.sort_by_key(|s| std::cmp::Reverse(depth(*s)));
+        if !iface && p.struct_def(want_sid).generics.is_empty() {
+            // (A non-generic class: one check covers its subclasses.)
+            classes = vec![want_sid];
+        }
+        for c in classes {
+            let ct = p.struct_ty(c);
+            cands.push((1, Some(ct.clone()), ct));
+        }
+        // The types with tags of their own: generic class instances, structs.
+        for x in self.cx.unknown_tags.clone() {
+            match &x {
+                Ty::Class(s, _, a) | Ty::Struct(s, _, a)
+                    if (!a.is_empty() || matches!(x, Ty::Struct(..))) && fits(*s, a) =>
+                {
+                    let k = self.cx.unknown_tag(&x);
+                    cands.push((k, None, x.clone()));
+                }
+                // An enum implementing the interface.
+                Ty::Enum(eid, _, a)
+                    if iface
+                        && p.enum_iface_args(*eid, want_sid).is_some_and(|ia| {
+                            let owner = Ty::enum_owner(*eid);
+                            ia.iter().map(|x| x.subst(owner, a)).collect::<Vec<_>>() == want_args
+                        }) =>
+                {
+                    let k = self.cx.unknown_tag(&x);
+                    cands.push((k, None, x.clone()));
+                }
+                _ => {}
+            }
+        }
+        for (k, class, held) in cands {
+            let eq = self.rvalue_to_temp(
+                Rvalue::Binary(
+                    mir::BinOp::Eq,
+                    tag.clone(),
+                    Operand::Const(Const::Int(k as i128, IntTy::U32)),
+                ),
+                Ty::Bool,
+                span,
+            );
+            let (yes, no) = (self.new_block(), self.new_block());
+            self.terminate(Terminator::Branch {
+                cond: eq,
+                then: yes,
+                else_: no,
+            });
+            self.switch_to(yes);
+            let value = self.unknown_value(uo(), &held, span);
+            if let Some(c) = class {
+                let is = self.rvalue_to_temp(
+                    Rvalue::InstanceOf(Operand::Copy(value.clone()), c),
+                    Ty::Bool,
+                    span,
+                );
+                let hit = self.new_block();
+                self.terminate(Terminator::Branch {
+                    cond: is,
+                    then: hit,
+                    else_: no,
+                });
+                self.switch_to(hit);
+            }
+            let v = self.convert(Operand::Copy(value), &held, t, span);
+            self.assign(res.clone(), Rvalue::WrapSome(v, t.clone().nullable()), span);
+            self.terminate(Terminator::Goto(done));
+            self.switch_to(no);
+        }
+        self.terminate(Terminator::Goto(done));
+        self.switch_to(done);
+        Operand::Copy(res)
+    }
+
+    /// Whether the `unknown` value `u` holds a `t`, and where the value then is (#53; a class
+    /// or interface through `Synth::UnknownTest`, the rest by tag).
+    fn unknown_narrow(&mut self, u: Operand, t: &Ty, span: Span) -> (Operand, Place) {
+        if matches!(t.erase(), Ty::Class(..) | Ty::Iface(..)) {
+            let r = self.unknown_test(u, t, span);
+            let null = self.rvalue_to_temp(Rvalue::IsNull(r.clone()), Ty::Bool, span);
+            let ok = self.rvalue_to_temp(Rvalue::Unary(mir::UnOp::Not, null), Ty::Bool, span);
+            let v = Place::local(self.temp(t.clone()));
+            // (Read only where `ok`: unwrapping null is never done.)
+            let (yes, done) = (self.new_block(), self.new_block());
+            self.terminate(Terminator::Branch {
+                cond: ok.clone(),
+                then: yes,
+                else_: done,
+            });
+            self.switch_to(yes);
+            self.assign(v.clone(), Rvalue::Unwrap(r), span);
+            self.terminate(Terminator::Goto(done));
+            self.switch_to(done);
+            return (ok, v);
+        }
+        let ok = self.unknown_is(u.clone(), t, span);
+        if *t == Ty::Null {
+            return (ok, Place::local(self.temp(Ty::Unknown)));
+        }
+        // (Read only where `ok`: the payload is another type's otherwise.)
+        let v = Place::local(self.temp(t.clone()));
+        let (yes, done) = (self.new_block(), self.new_block());
+        self.terminate(Terminator::Branch {
+            cond: ok.clone(),
+            then: yes,
+            else_: done,
+        });
+        self.switch_to(yes);
+        let inner = self.unknown_value(u, t, span);
+        self.assign(v.clone(), Rvalue::Use(Operand::Copy(inner)), span);
+        self.terminate(Terminator::Goto(done));
+        self.switch_to(done);
+        (ok, v)
+    }
+
+    /// Whether the `unknown` value `u` holds a `t` by its tag (#53; not a class or interface:
+    /// `unknown_narrow`).
     fn unknown_is(&mut self, u: Operand, t: &Ty, span: Span) -> Operand {
         if *t == Ty::Unknown {
             return Operand::Const(Const::Bool(true));
         }
         let want = self.cx.unknown_tag(t);
         let tag = self.rvalue_to_temp(Rvalue::UnknownTag(u.clone()), Ty::Int(IntTy::U32), span);
-        let eq = self.rvalue_to_temp(
+        self.rvalue_to_temp(
             Rvalue::Binary(
                 mir::BinOp::Eq,
                 tag,
@@ -3514,29 +3726,7 @@ impl FnBuilder<'_, '_> {
             ),
             Ty::Bool,
             span,
-        );
-        let Ty::Class(..) = t.erase() else {
-            return eq;
-        };
-        // (A class object: then `InstanceOf`, on the payload only when it is one.)
-        let res = Place::local(self.temp(Ty::Bool));
-        self.assign(
-            res.clone(),
-            Rvalue::Use(Operand::Const(Const::Bool(false))),
-            span,
-        );
-        let (yes, done) = (self.new_block(), self.new_block());
-        self.terminate(Terminator::Branch {
-            cond: eq,
-            then: yes,
-            else_: done,
-        });
-        self.switch_to(yes);
-        let obj = self.rvalue_to_temp(Rvalue::FromUnknown(u, t.erase()), t.erase(), span);
-        self.assign(res.clone(), Rvalue::InstanceOf(obj, t.erase()), span);
-        self.terminate(Terminator::Goto(done));
-        self.switch_to(done);
-        Operand::Copy(res)
+        )
     }
 
     /// The value an `unknown` holding a `t` holds, as a place (#53; after `unknown_is`).
@@ -4641,7 +4831,7 @@ impl FnBuilder<'_, '_> {
                 }
                 if from == Ty::Unknown {
                     // A checked conversion (#53): the value, or a panic.
-                    let ok = self.unknown_is(v.clone(), to, e.span);
+                    let (ok, p) = self.unknown_narrow(v, to, e.span);
                     let (fine, bad) = (self.new_block(), self.new_block());
                     self.terminate(Terminator::Branch {
                         cond: ok,
@@ -4658,7 +4848,6 @@ impl FnBuilder<'_, '_> {
                     if *to == Ty::Null {
                         return Operand::Const(Const::Null(to.clone()));
                     }
-                    let p = self.unknown_value(v, to, e.span);
                     return self.rvalue_to_temp(Rvalue::Use(Operand::Copy(p)), to.clone(), e.span);
                 }
                 if let (Operand::Const(Const::Int(n, _)), Ty::Int(it)) = (&v, to)
@@ -5197,12 +5386,11 @@ impl FnBuilder<'_, '_> {
         if let Some(want) = self.cx.types.unknown_tests.get(&p.id).cloned()
             && self.place_ty(place) == Ty::Unknown
         {
-            let ok = self.unknown_is(Operand::Copy(place.clone()), &want, p.span);
+            let (ok, inner) = self.unknown_narrow(Operand::Copy(place.clone()), &want, p.span);
             self.branch_unless(ok, fail);
             if want == Ty::Null {
                 return;
             }
-            let inner = self.unknown_value(Operand::Copy(place.clone()), &want, p.span);
             return self.match_pattern_inner(p, &inner, fail);
         }
         if let Some(&i) = self.cx.types.union_tests.get(&p.id) {

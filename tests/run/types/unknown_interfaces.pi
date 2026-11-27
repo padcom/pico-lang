@@ -1,0 +1,98 @@
+// An `unknown` holding a class object, a struct or an enum matches an interface the type implements,
+// and a generic class's instance matches its class and its base classes (#53).
+// expect: named User: ann
+// expect: named Admin: root
+// expect: named Pt: (1, 2)
+// expect: named value: plain
+// expect: named value: color
+// expect: not named
+// expect: box of int: 3
+// expect: labeled box: 4 four
+// expect: not a box of int
+// expect: animal Rex
+// expect: as Named: ann
+interface Named {
+  name(): string
+}
+
+class User implements Named {
+  constructor(public login: string) {}
+  public virtual name(): string { return this.login }
+}
+
+class Admin extends User {
+  public override name(): string { return `root` }
+}
+
+struct Pt implements Named {
+  x: int
+  y: int
+  name(): string { return `(${this.x}, ${this.y})` }
+}
+
+class Plain implements Named {
+  public name(): string { return "plain" }
+}
+
+enum Color implements Named {
+  Red,
+  Blue,
+  name(): string { return "color" }
+}
+
+class Box<T> {
+  constructor(public value: T) {}
+}
+
+class Labeled<T> extends Box<T> {
+  constructor(value: T, public label: string) {
+    super(value)
+  }
+}
+
+class Animal {
+  constructor(public name: string) {}
+}
+
+class Pet<T> extends Animal {
+  constructor(name: string, public tag: T) {
+    super(name)
+  }
+}
+
+function named(u: unknown): string {
+  return match (u) {
+    n: Named => `named ${typeName(u)}: ${n.name()}`,
+    _ => "not named",
+  }
+}
+
+function typeName(u: unknown): string {
+  return match (u) {
+    _a: Admin => "Admin",
+    _u: User => "User",
+    _p: Pt => "Pt",
+    _ => "value",
+  }
+}
+
+function boxed(u: unknown): string {
+  return match (u) {
+    l: Labeled<int> => `labeled box: ${l.value} ${l.label}`,
+    b: Box<int> => `box of int: ${b.value}`,
+    _ => "not a box of int",
+  }
+}
+
+const plain: Named = new Plain()
+const things: unknown[] = [new User("ann"), new Admin("x"), Pt { x: 1, y: 2 }, plain, Color.Red, 5]
+for (const t of things) println(named(t))
+const boxes: unknown[] = [new Box<int>(3), new Labeled<int>(4, "four"), new Box<string>("s")]
+for (const b of boxes) println(boxed(b))
+const pet: unknown = new Pet<int>("Rex", 1)
+match (pet) {
+  a: Animal => println(`animal ${a.name}`),
+  _ => println("?"),
+}
+const ann: unknown = new User("ann")
+println(`as Named: ${(ann as Named).name()}`)
