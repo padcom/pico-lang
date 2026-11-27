@@ -394,10 +394,14 @@ impl Ty {
             Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| t.erase()).collect()),
             Ty::Nullable(t) => Ty::Nullable(Box::new(t.erase())),
             Ty::Ref(t) => Ty::Ref(Box::new(t.erase())),
-            Ty::Struct(id, n, a) => Ty::Struct(*id, n.clone(), a.iter().map(Ty::erase).collect()),
-            Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(Ty::erase).collect()),
-            Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(Ty::erase).collect()),
-            Ty::Enum(id, n, a) => Ty::Enum(*id, n.clone(), a.iter().map(Ty::erase).collect()),
+            // (A literal type argument stays: it's a `comptime` parameter's value, `Vec<3>`,
+            // #53.)
+            Ty::Struct(id, n, a) => {
+                Ty::Struct(*id, n.clone(), a.iter().map(Ty::erase_arg).collect())
+            }
+            Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(Ty::erase_arg).collect()),
+            Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(Ty::erase_arg).collect()),
+            Ty::Enum(id, n, a) => Ty::Enum(*id, n.clone(), a.iter().map(Ty::erase_arg).collect()),
             // What a function throws doesn't change how it's called.
             Ty::Fn(ps, r, _) => Ty::Fn(
                 ps.iter().map(Ty::erase).collect(),
@@ -409,6 +413,14 @@ impl Ty {
             // A union is stored as its anonymous enum.
             Ty::Union(e, _) => Ty::Enum(*e, self.to_string().into(), Arc::from([])),
             t => t.clone(),
+        }
+    }
+
+    /// A type argument erased: a literal type stays (a `comptime` parameter's value).
+    fn erase_arg(&self) -> Ty {
+        match self {
+            Ty::Lits(..) => self.clone(),
+            t => t.erase(),
         }
     }
 

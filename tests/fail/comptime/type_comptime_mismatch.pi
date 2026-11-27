@@ -1,0 +1,7 @@
+// error: E0308
+// at: 7:19
+// `Vec<3>` and `Vec<2>` are different types (#53).
+struct Vec<comptime N: i32> {
+  items: [f64; N]
+}
+const v: Vec<3> = Vec<2> { items: [1.0, 2.0] }

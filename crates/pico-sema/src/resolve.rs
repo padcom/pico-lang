@@ -2184,14 +2184,20 @@ impl Resolver {
     /// Makes a generic type's parameters visible (inside its members' code).
     fn enter_type_params(&mut self, sid: StructId) {
         let owner = Ty::type_owner(sid);
-        let names: Vec<String> = self.structs[sid.0 as usize]
+        let params: Vec<(String, bool)> = self.structs[sid.0 as usize]
             .generics
             .iter()
-            .map(|p| p.name.clone())
+            .map(|p| (p.name.clone(), p.comptime.is_some()))
             .collect();
-        for (i, n) in names.into_iter().enumerate() {
+        for (i, (n, constant)) in params.into_iter().enumerate() {
             let t = Ty::Param(owner, i as u32, n.as_str().into());
-            self.f.type_params.push((n, t));
+            // (`comptime N: i32`: a constant, as a value or an array length, as in functions;
+            // #53.)
+            if constant {
+                self.f.const_params.push((n, t));
+            } else {
+                self.f.type_params.push((n, t));
+            }
         }
     }
 
@@ -5104,7 +5110,21 @@ impl Resolver {
                 }
             }
         }
+        self.fit_comptime_args(sid, &mut args);
         self.structs[sid.0 as usize].ty_with(sid, args.into())
+    }
+
+    /// A literal for a `comptime` parameter of type `sid` has the parameter's type
+    /// (`Vec<3>` with `comptime N: i32`: `3: i32`, #53), as a call's does.
+    fn fit_comptime_args(&self, sid: StructId, args: &mut [Ty]) {
+        for (a, g) in args.iter_mut().zip(&self.structs[sid.0 as usize].generics) {
+            if let (Some(ct), Ty::Lits(base, vs)) = (&g.comptime, &*a)
+                && **base != *ct
+                && vs.len() == 1
+            {
+                *a = Ty::Lits(Box::new(ct.clone()), vs.clone());
+            }
+        }
     }
 
     /// A generic enum's type with its arguments (#51), as [`Self::generic_ty`] for structs.
@@ -6405,7 +6425,8 @@ impl Resolver {
                 type_args,
                 args,
             } => {
-                let type_args: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(t)).collect();
+                let mut type_args: Vec<Ty> =
+                    type_args.iter().map(|t| self.resolve_type(t)).collect();
                 let class = match &callee.kind {
                     ast::ExprKind::Ident(n) => self
                         .top_structs
@@ -6417,6 +6438,7 @@ impl Resolver {
                 if let Some(c) = class {
                     let decl = self.structs[c.0 as usize].name_span;
                     self.name_refs.push((callee.span, decl));
+                    self.fit_comptime_args(c, &mut type_args);
                 }
                 let Some(class) = class else {
                     self.error(
@@ -7880,6 +7902,9 @@ impl Resolver {
                     });
                 }
             }
+        }
+        if let Some(s) = sid {
+            self.fit_comptime_args(s, &mut type_args);
         }
         ExprKind::Object {
             ty: sid,
