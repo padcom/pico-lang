@@ -2650,6 +2650,12 @@ impl<'ctx> Gen<'ctx, '_> {
                 let len = self.array_len(arr);
                 let p = self.array_elem(arr, &elem, len);
                 let v = self.b.build_load(self.elem_ty(&elem), p, "").unwrap();
+                // The slot forgets what it held, so the collector doesn't keep a popped object
+                // alive (#72). (Clearing a reference needs no barrier.)
+                if self.p.traced(&elem) {
+                    let zero = self.elem_ty(&elem).const_zero();
+                    self.b.build_store(p, zero).unwrap();
+                }
                 if matches!(*elem, Ty::Nullable(_)) {
                     // A nullable element is its own result (`T??` is `T?`): `null` when empty.
                     let null = self.ty(&elem).expect("nullable").const_zero();

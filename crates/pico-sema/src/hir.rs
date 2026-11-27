@@ -183,6 +183,9 @@ pub struct FieldDef {
     /// `@weak` (core library only, spec §9.3): a `C?` or `T[]?` field that doesn't keep its
     /// target alive; the collector sets it to `null` when the target is collected.
     pub weak: bool,
+    /// `@ephemeron` (core library only, #72): traced only while the target of the object's
+    /// `@weak` field is alive (a `WeakMap` entry's value); the collector clears it otherwise.
+    pub ephemeron: bool,
     /// `@json.name("key")`: the field's key in JSON (spec §11.4).
     pub json_name: Option<String>,
 }

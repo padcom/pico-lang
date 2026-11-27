@@ -55,7 +55,9 @@ typedef struct PicoStr {
  * n / size elements (more than one for array storage). Offsets with PICO_REF_HIDDEN set are
  * traced but ignored by `gc.dumpRoots()` (enum payload words, closure environments). After
  * them come `nweak` offsets of weak pointers (`@weak` fields, spec §9.3): not traced, and set
- * to NULL when what they point to is collected (only object layouts have them). A NULL
+ * to NULL when what they point to is collected (only object layouts have them). Offsets with
+ * PICO_REF_EPHEMERON set (`@ephemeron` fields, #72; object layouts with weak words only) are
+ * traced only while the first weak word's target is reached, and set to NULL with it. A NULL
  * layout means no references. */
 typedef struct PicoLayout {
     int64_t size;
@@ -64,6 +66,9 @@ typedef struct PicoLayout {
     uint32_t refs[];
 } PicoLayout;
 #define PICO_REF_HIDDEN 0x80000000u
+#define PICO_REF_EPHEMERON 0x40000000u
+/* A reference word's offset (without its flags). */
+#define PICO_REF_OFFSET(r) ((r) & 0x3fffffffu)
 
 /* Shadow stack: every function with locals that hold references keeps them in one frame,
  * `{ prev, map, locals… }`, linked from `pico_gc_top`. The map names each root (NULL for

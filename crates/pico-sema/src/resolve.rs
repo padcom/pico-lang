@@ -1315,6 +1315,7 @@ impl Resolver {
                     preassigned: false,
                     readonly: false,
                     weak: false,
+                    ephemeron: false,
                     json_name: None,
                 });
             }
@@ -1448,6 +1449,7 @@ impl Resolver {
                         preassigned: *optional,
                         readonly,
                         weak: false,
+                        ephemeron: false,
                         json_name,
                     });
                 }
@@ -2699,6 +2701,7 @@ impl Resolver {
                 preassigned: true,
                 readonly: false,
                 weak: false,
+                ephemeron: false,
                 json_name: None,
             })
             .collect();
@@ -2828,14 +2831,19 @@ impl Resolver {
         };
         let mut groups: Vec<MethodGroup> = Vec::new();
         for m in &cd.members {
-            // `@weak` fields: the core library's weak references (spec §9.3).
-            let weak = self.mods.cur == PRELUDE_MODULE
-                && matches!(m.kind, ast::MemberKind::Field { .. })
-                && m.decorators.len() == 1
-                && m.decorators[0].args.is_none()
-                && m.decorators[0].path.len() == 1
-                && m.decorators[0].path[0].name == "weak";
-            let json_name = if weak {
+            // `@weak` fields: the core library's weak references (spec §9.3); `@ephemeron`
+            // ones: held only while the object's `@weak` field's target lives (#72).
+            let core_decorator = |name: &str| {
+                self.mods.cur == PRELUDE_MODULE
+                    && matches!(m.kind, ast::MemberKind::Field { .. })
+                    && m.decorators.len() == 1
+                    && m.decorators[0].args.is_none()
+                    && m.decorators[0].path.len() == 1
+                    && m.decorators[0].path[0].name == name
+            };
+            let weak = core_decorator("weak");
+            let ephemeron = core_decorator("ephemeron");
+            let json_name = if weak || ephemeron {
                 None
             } else if matches!(m.kind, ast::MemberKind::Field { .. }) {
                 self.json_name(&m.decorators)
@@ -2890,6 +2898,7 @@ impl Resolver {
                             preassigned: true,
                             readonly: p.mods.readonly,
                             weak: false,
+                            ephemeron: false,
                             json_name: None,
                         });
                     }
@@ -3008,6 +3017,7 @@ impl Resolver {
                         preassigned: init.is_some() || nullable,
                         readonly: m.mods.readonly,
                         weak,
+                        ephemeron,
                         json_name: json_name.clone(),
                     });
                     info.field_inits.push((name, init.as_ref()));
@@ -5266,6 +5276,7 @@ impl Resolver {
                         preassigned: false,
                         readonly: false,
                         weak: false,
+                        ephemeron: false,
                         json_name: None,
                     }],
                     has_parens: true,
@@ -5344,6 +5355,7 @@ impl Resolver {
                 preassigned: false,
                 readonly: false,
                 weak: false,
+                ephemeron: false,
                 json_name: None,
             }];
             for f in o.iter().filter(|f| f.name.name != disc) {
@@ -5358,6 +5370,7 @@ impl Resolver {
                     preassigned: f.optional,
                     readonly: false,
                     weak: false,
+                    ephemeron: false,
                     json_name: None,
                 });
             }

@@ -199,3 +199,42 @@ void pico_entry(void) {
         mismatches[..mismatches.len().min(20)].join("\n")
     );
 }
+
+/// #72: nursery collections scan only the arena objects they haven't seen and the arena cards
+/// written since; a young heap object stored into a seen arena object afterwards survives.
+/// (Pico code can't make one: while an arena is open only heap-owned array storage is
+/// allocated on the heap.)
+#[test]
+fn arena_cards_keep_young_objects() {
+    let out = run_c(
+        "arena_cards",
+        r#"
+#include "pico_rt.h"
+#include <stdio.h>
+void *pico_gc_alloc_near(const void *owner, int64_t size, const PicoLayout *layout);
+void pico_gc_pin(const void *p);
+void pico_gc_collect_young(void);
+void pico_arena_enter(void);
+void pico_arena_release(int32_t level);
+void *pico_gc_find_object(const void *p, int64_t *size, const PicoLayout **layout);
+static const struct { int64_t size; int32_t nrefs, nweak; uint32_t refs[1]; } one_ref = {8, 1, 0, {0}};
+void pico_entry(void) {
+    void *owner = pico_gc_alloc(8, NULL);
+    pico_gc_pin(owner);
+    pico_arena_enter();
+    void **box = pico_gc_alloc(8, (const PicoLayout *)&one_ref);
+    pico_gc_collect_young(); /* the box is seen */
+    void *young = pico_gc_alloc_near(owner, 16, NULL);
+    *box = young;
+    pico_gc_write(box, (const PicoLayout *)&one_ref);
+    pico_gc_collect_young();
+    int64_t size;
+    const PicoLayout *l;
+    printf("%s\n", pico_gc_find_object(young, &size, &l) ? "kept" : "freed");
+    pico_arena_release(0);
+}
+"#,
+        b"",
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "kept\n", "{out:?}");
+}

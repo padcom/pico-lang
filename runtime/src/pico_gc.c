@@ -38,12 +38,24 @@ static _Thread_local const PicoGlobalRoots *globals;
  * traced; once a nursery collection has marked, the weak words pointing to young objects it
  * didn't reach are cleared, and once a major marking has finished, those pointing to old
  * objects without the cycle's color. Both happen before the targets are swept, so a cleared
- * address is never reused while a weak word still holds it.
+ * address is never reused while a weak word still holds it. A nursery collection walks only
+ * the weak objects allocated since the last one and the old ones written since (an old weak
+ * word can point to a young object only after a store, which the barrier remembers).
+ *
+ * Ephemerons (#72): an object's `@ephemeron` words (a `WeakMap` entry's value) are traced
+ * only once the target of its first weak word (the key) is reached. Marking skips them and
+ * keeps the object in a list; once the marking is done, the list is gone through again until
+ * nothing new is reached (a value may reach another entry's key), and the ephemeron words of
+ * the entries whose key wasn't reached are cleared with the key. So a value that refers to
+ * its own key doesn't keep the entry.
  *
  * Scoped arenas (spec §9.4) are chunks of 64 KiB-aligned memory in the block table (`cls`
  * -1, `live` = the arena's level) that the collector never marks or sweeps: allocations
  * bump through them while the arena is open, their objects are roots (they may point to heap
- * objects), and closing the arena frees the chunks. References must not outlive it: the
+ * objects), and closing the arena frees the chunks. For nursery collections they're like old
+ * objects: each scans only the arena objects allocated since the last one (`seen`) and those
+ * on the 512-byte cards the barrier marked (`first` gives the object at a card's start), not
+ * the whole arena. Major markings scan them all. References must not outlive it: the
  * compiler rejects the visible escapes, the write barrier panics when one is stored into an
  * older object, and closing panics when a frame or a global still holds one. */
 
@@ -85,7 +97,9 @@ typedef struct Block {
     int64_t live; /* allocated cells */
     int cls;
     int in_avail;
-    uint8_t *cards; /* large objects: the written cards, once old */
+    uint8_t *cards; /* large objects: the written cards, once old; arena chunks: written */
+    char *seen;     /* arena chunks: how far nursery collections have scanned */
+    uint32_t *first; /* arena chunks, per card: the offset of the object at its start */
 } Block;
 
 static const uint32_t class_sizes[] = {32,   48,   64,   80,   96,   112,  128,  160,  192,
@@ -427,6 +441,11 @@ static Obj *arena_alloc(int level, size_t need) {
         b->bytes = bytes;
         b->cells = b->bump = (char *)b + header_size();
         b->end = (char *)b + bytes;
+        size_t ncards = bytes >> CARD_SHIFT;
+        b->cards = calloc(ncards, 1);
+        b->first = malloc(ncards * sizeof *b->first);
+        if (!b->cards || !b->first) out_of_memory();
+        b->first[0] = (uint32_t)header_size(); /* (card 0 starts in the header) */
         b->next = arena_chunks[level - 1];
         arena_chunks[level - 1] = b;
         for (size_t i = 0; i < bytes / BLOCK_SIZE; i++) {
@@ -434,19 +453,31 @@ static Obj *arena_alloc(int level, size_t need) {
         }
     }
     Obj *o = (Obj *)b->bump;
+    /* The cards that start inside the new object begin with it. */
+    size_t s = (size_t)(b->bump - (char *)b), e = s + need;
+    for (size_t c = (s + ((size_t)1 << CARD_SHIFT) - 1) >> CARD_SHIFT; c << CARD_SHIFT < e; c++) {
+        b->first[c] = (uint32_t)s;
+    }
     b->bump += need;
     return o;
 }
 
-/* Visits every object of the open arenas. */
-static void scan_arenas(void (*visit)(const void *)) {
+static void scan_ephemerons(const Obj *o, void (*visit)(const void *));
+
+/* Visits the objects of the open arenas: all of them, or (`young`) those allocated since the
+ * last nursery collection (the others are remembered when written to, as old objects are).
+ * An arena entry's ephemeron words hold strongly (until the arena closes). */
+static void scan_arenas(void (*visit)(const void *), int young) {
     for (int i = 0; i < arena_depth; i++) {
         for (Block *b = arena_chunks[i]; b; b = b->next) {
-            for (char *c = b->cells; c < b->bump;) {
+            char *c = young && b->seen ? b->seen : b->cells;
+            for (; c < b->bump;) {
                 const Obj *o = (const Obj *)c;
                 scan((const char *)(o + 1), o->layout, o->size, visit);
+                scan_ephemerons(o, visit);
                 c += sizeof(Obj) + (((size_t)o->size + 15) & ~(size_t)15);
             }
+            if (young) b->seen = b->bump;
         }
     }
 }
@@ -463,15 +494,19 @@ void pico_arena_enter(void) {
 int32_t pico_arena_level(void) { return arena_depth; }
 
 static void forget_weak_in_arenas(int level);
+static void forget_remembered_in_arenas(int level);
 
 void pico_arena_release(int32_t level) {
     if (level < 0) level = 0;
     if (arena_depth <= level) return;
     forget_weak_in_arenas(level + 1);
+    forget_remembered_in_arenas(level + 1);
     while (arena_depth > level) {
         Block *b = arena_chunks[--arena_depth];
         while (b) {
             Block *next = b->next;
+            free(b->cards);
+            free(b->first);
             for (size_t i = 0; i < b->bytes / BLOCK_SIZE; i++) {
                 table_del(((uintptr_t)b >> BLOCK_SHIFT) + i);
             }
@@ -563,7 +598,7 @@ static void *evacuate(void *p, int level) {
     if (l) {
         for (int64_t at = 0; at + l->size <= (int64_t)o->size; at += l->size) {
             for (int32_t i = 0; i < l->nrefs + l->nweak; i++) {
-                char *slot = copy + at + (l->refs[i] & ~PICO_REF_HIDDEN);
+                char *slot = copy + at + PICO_REF_OFFSET(l->refs[i]);
                 void *q;
                 memcpy(&q, slot, sizeof q);
                 /* Weak words into the arena would dangle: cleared. */
@@ -660,6 +695,12 @@ static void push(Stack *st, Obj *o) {
 static _Thread_local Stack young_objects;
 /* The objects with weak words. */
 static _Thread_local Stack weak_objects;
+/* The weak objects allocated since the last nursery collection (then they join the old list). */
+static _Thread_local Stack weak_young;
+/* Old weak objects written to since the last nursery collection (gathered by it). */
+static _Thread_local Stack weak_written;
+/* Objects with ephemeron words the running nursery / major marking reached. */
+static _Thread_local Stack young_ephemerons, old_ephemerons;
 /* `ArrayBuffer`s received in messages (copied or transferred), which no finalization registry
  * knows: their bytes are freed once they're found dead (#16). */
 static _Thread_local Stack owned_buffers;
@@ -695,7 +736,7 @@ static void *arena_object(int level, size_t need, int64_t size, const PicoLayout
     o->size = (uint32_t)size;
     o->flags = F_ALLOC | F_ARENA;
     memset(o + 1, 0, (size_t)size);
-    if (layout && layout->nweak) push(&weak_objects, o);
+    if (layout && layout->nweak) push(&weak_young, o);
     allocated_bytes += (int64_t)need;
     return o + 1;
 }
@@ -716,7 +757,7 @@ static void *heap_object(size_t need, int64_t size, const PicoLayout *layout) {
     o->flags = F_ALLOC;
     memset(o + 1, 0, (size_t)size);
     push(&young_objects, o);
-    if (layout && layout->nweak) push(&weak_objects, o);
+    if (layout && layout->nweak) push(&weak_young, o);
     used_bytes += (int64_t)cell;
     allocated_bytes += (int64_t)cell;
     young_bytes += (int64_t)cell;
@@ -815,6 +856,42 @@ static _Thread_local struct {
     size_t len, cap;
 } dirty;
 
+/* Written cards of arena chunks. */
+static _Thread_local struct {
+    Card *items;
+    size_t len, cap;
+} arena_dirty;
+
+static void push_arena_card(Block *b, size_t card) {
+    if (arena_dirty.len == arena_dirty.cap) {
+        arena_dirty.cap = arena_dirty.cap ? arena_dirty.cap * 2 : 256;
+        arena_dirty.items = realloc(arena_dirty.items, arena_dirty.cap * sizeof *arena_dirty.items);
+        if (!arena_dirty.items) out_of_memory();
+    }
+    arena_dirty.items[arena_dirty.len++] = (Card){b, card};
+}
+
+/* Forgets the written cards of the arenas from `level` up (they're about to be freed). */
+static void forget_remembered_in_arenas(int level) {
+    size_t k = 0;
+    for (size_t i = 0; i < arena_dirty.len; i++) {
+        if (arena_dirty.items[i].b->live < level) arena_dirty.items[k++] = arena_dirty.items[i];
+    }
+    arena_dirty.len = k;
+}
+
+/* The arena objects overlapping a written card (a weak one is checked for young targets). */
+static void scan_arena_card(Block *b, size_t card, void (*visit)(const void *)) {
+    char *end = (char *)b + ((card + 1) << CARD_SHIFT);
+    for (char *c = (char *)b + b->first[card]; c < end && c < b->bump;) {
+        Obj *o = (Obj *)c;
+        scan((const char *)(o + 1), o->layout, o->size, visit);
+        scan_ephemerons(o, visit);
+        if (o->layout && o->layout->nweak) push(&weak_written, o);
+        c += sizeof(Obj) + (((size_t)o->size + 15) & ~(size_t)15);
+    }
+}
+
 static void push_card(Block *b, size_t card) {
     if (dirty.len == dirty.cap) {
         dirty.cap = dirty.cap ? dirty.cap * 2 : 1024;
@@ -852,8 +929,9 @@ static void scan_range(const char *base, const PicoLayout *l, int64_t from, int6
     if (!l) return;
     for (int64_t at = from; at + l->size <= to; at += l->size) {
         for (int32_t i = 0; i < l->nrefs; i++) {
+            if (l->refs[i] & PICO_REF_EPHEMERON) continue; /* (see `settle_ephemerons`) */
             void *p;
-            memcpy(&p, base + at + (l->refs[i] & ~PICO_REF_HIDDEN), sizeof p);
+            memcpy(&p, base + at + PICO_REF_OFFSET(l->refs[i]), sizeof p);
             if (p) visit(p);
         }
     }
@@ -905,7 +983,7 @@ static void scan_roots(void (*visit)(const void *)) {
             scan(r->addr, r->layout, r->layout->size, visit);
         }
     }
-    scan_arenas(visit);
+    scan_arenas(visit, visit == visit_young);
 }
 
 /* The write barrier, after a value laid out as `layout` was stored at `slot`: an old object
@@ -924,6 +1002,16 @@ void pico_gc_write(void *slot, const PicoLayout *layout) {
         escaped = 0;
         scan(slot, layout, layout->size, check_store);
         if (escaped) arena_escape("", 0, 0, 0);
+        /* A written arena card is remembered, as an old large object's is (nursery
+         * collections don't scan the arena objects they've seen). */
+        if (barrier_level > 0) {
+            Block *b = table_get((uintptr_t)slot >> BLOCK_SHIFT);
+            size_t card = (size_t)((char *)slot - (char *)b) >> CARD_SHIFT;
+            if (!b->cards[card]) {
+                b->cards[card] = 1;
+                push_arena_card(b, card);
+            }
+        }
     }
     if (old_bytes == 0) return;
     Obj *o = find_object(slot);
@@ -1087,6 +1175,77 @@ static int dead(const Obj *o, int major) {
     return !(o->flags & (F_OLD | F_MARK));
 }
 
+/* ---------------------------------------------------------------- ephemerons (#72) */
+
+/* Whether objects laid out as `l` have ephemeron words (then their first weak word is the
+ * key). */
+static int has_ephemerons(const PicoLayout *l) {
+    if (!l || !l->nweak) return 0;
+    for (int32_t i = 0; i < l->nrefs; i++) {
+        if (l->refs[i] & PICO_REF_EPHEMERON) return 1;
+    }
+    return 0;
+}
+
+/* Visits what `o`'s ephemeron words point to (an arena object's, which hold strongly). */
+static void scan_ephemerons(const Obj *o, void (*visit)(const void *)) {
+    const PicoLayout *l = o->layout;
+    if (!has_ephemerons(l)) return;
+    for (int32_t i = 0; i < l->nrefs; i++) {
+        if (!(l->refs[i] & PICO_REF_EPHEMERON)) continue;
+        void *p;
+        memcpy(&p, (const char *)(o + 1) + PICO_REF_OFFSET(l->refs[i]), sizeof p);
+        if (p) visit(p);
+    }
+}
+
+/* Whether `o`'s key was reached by the running marking: the nursery one (old objects count as
+ * reached) or the major one (young objects do: none are left when it settles). A cleared key
+ * wasn't. */
+static int key_reached(const Obj *o, int major) {
+    const PicoLayout *l = o->layout;
+    void *key;
+    memcpy(&key, (const char *)(o + 1) + l->refs[l->nrefs], sizeof key);
+    if (!key) return 0;
+    Obj *t = find_object(key);
+    return !t || !dead(t, major);
+}
+
+/* Once marking has drained: traces the ephemeron words of the reached objects in `st` whose
+ * key was reached, drains again, and repeats until nothing new is reached (a value may lead to
+ * another entry's key); then clears the ephemeron words of the rest (their keys are about to
+ * be cleared too) and empties `st`. */
+static void settle_ephemerons(Stack *st, int major, void (*visit)(const void *),
+                              void (*drain)(void)) {
+    for (;;) {
+        size_t k = 0, before = st->len;
+        for (size_t i = 0; i < before; i++) {
+            Obj *o = st->items[i];
+            if (key_reached(o, major)) {
+                scan_ephemerons(o, visit);
+            } else {
+                st->items[k++] = o;
+            }
+        }
+        /* (Draining may add entries: they're after the ones kept.) */
+        memmove(st->items + k, st->items + before, (st->len - before) * sizeof *st->items);
+        st->len = k + (st->len - before);
+        int more = major ? grey.len > 0 : young_stack.len > 0;
+        if (!more) break;
+        drain();
+    }
+    for (size_t i = 0; i < st->len; i++) {
+        Obj *o = st->items[i];
+        const PicoLayout *l = o->layout;
+        for (int32_t j = 0; j < l->nrefs; j++) {
+            if (l->refs[j] & PICO_REF_EPHEMERON) {
+                memset((char *)(o + 1) + PICO_REF_OFFSET(l->refs[j]), 0, sizeof(void *));
+            }
+        }
+    }
+    st->len = 0;
+}
+
 int64_t pico_buf_op(int64_t op, int64_t a, int64_t b, int64_t c);
 
 void pico_gc_own_buffer(void *obj, int64_t bytes) {
@@ -1111,35 +1270,59 @@ static void free_dead_buffers(int major) {
     owned_buffers.len = k;
 }
 
-/* Clears the weak words whose targets are dead, and forgets the dead weak objects. */
+/* Clears `w`'s weak words whose targets are dead. */
+static void clear_weak_words(Obj *w, int major) {
+    const PicoLayout *l = w->layout;
+    for (int32_t j = 0; j < l->nweak; j++) {
+        char *slot = (char *)(w + 1) + l->refs[l->nrefs + j];
+        void *p;
+        memcpy(&p, slot, sizeof p);
+        if (!p) continue;
+        Obj *t = find_object(p);
+        if (t && dead(t, major)) memset(slot, 0, sizeof p);
+    }
+}
+
+/* Clears the weak words whose targets are dead, and forgets the dead weak objects. A nursery
+ * collection looks at the young weak objects (the survivors join the old list) and the old
+ * ones written since the last one; a major one at all of them. */
 static void clear_weak(int major) {
     size_t k = 0;
+    for (size_t i = 0; i < weak_young.len; i++) {
+        Obj *w = weak_young.items[i];
+        if (dead(w, major)) continue;
+        clear_weak_words(w, major);
+        push(&weak_objects, w);
+    }
+    weak_young.len = 0;
+    if (!major) {
+        for (size_t i = 0; i < weak_written.len; i++) clear_weak_words(weak_written.items[i], 0);
+        weak_written.len = 0;
+        return;
+    }
     for (size_t i = 0; i < weak_objects.len; i++) {
         Obj *w = weak_objects.items[i];
         if (dead(w, major)) continue;
         weak_objects.items[k++] = w;
-        const PicoLayout *l = w->layout;
-        for (int32_t j = 0; j < l->nweak; j++) {
-            char *slot = (char *)(w + 1) + l->refs[l->nrefs + j];
-            void *p;
-            memcpy(&p, slot, sizeof p);
-            if (!p) continue;
-            Obj *t = find_object(p);
-            if (t && dead(t, major)) memset(slot, 0, sizeof p);
-        }
+        clear_weak_words(w, major);
     }
     weak_objects.len = k;
 }
 
+static void forget_in(Stack *st, int level) {
+    size_t k = 0;
+    for (size_t i = 0; i < st->len; i++) {
+        Obj *w = st->items[i];
+        if ((w->flags & F_ARENA) && arena_level_of(w) >= level) continue;
+        st->items[k++] = w;
+    }
+    st->len = k;
+}
+
 /* Drops the weak objects in the arenas from `level` up (they're about to be freed). */
 static void forget_weak_in_arenas(int level) {
-    size_t k = 0;
-    for (size_t i = 0; i < weak_objects.len; i++) {
-        Obj *w = weak_objects.items[i];
-        if ((w->flags & F_ARENA) && arena_level_of(w) >= level) continue;
-        weak_objects.items[k++] = w;
-    }
-    weak_objects.len = k;
+    forget_in(&weak_objects, level);
+    forget_in(&weak_young, level);
 }
 
 /* ---------------------------------------------------------------- collections */
@@ -1156,6 +1339,20 @@ static void record_pause(int64_t start, const char *what) {
     total_pause += d;
 }
 
+/* Scans an object the nursery marking reached (its ephemeron words wait: see
+ * `settle_ephemerons`). */
+static void scan_young(Obj *o) {
+    scan_object(o, visit_young);
+    if (has_ephemerons(o->layout)) push(&young_ephemerons, o);
+}
+
+static void drain_young(void) {
+    while (young_stack.len > 0) scan_young(young_stack.items[--young_stack.len]);
+}
+
+static int mark_some(int64_t deadline, int64_t limit);
+static void drain_old(void) { mark_some(0, 0); }
+
 static void young_collection(void) {
     scan_roots(visit_young);
     for (size_t i = 0; i < remembered.len; i++) {
@@ -1163,15 +1360,26 @@ static void young_collection(void) {
         /* (Swept since it was remembered: freed, or reused by a new object.) */
         if (!(o->flags & F_REM)) continue;
         o->flags &= (uint8_t)~F_REM;
-        scan_object(o, visit_young);
+        scan_young(o);
+        if (o->layout && o->layout->nweak) push(&weak_written, o);
     }
     remembered.len = 0;
     for (size_t i = 0; i < dirty.len; i++) {
-        dirty.items[i].b->cards[dirty.items[i].card] = 0;
-        scan_card(dirty.items[i].b, dirty.items[i].card, visit_young);
+        Block *b = dirty.items[i].b;
+        b->cards[dirty.items[i].card] = 0;
+        scan_card(b, dirty.items[i].card, visit_young);
+        Obj *o = (Obj *)b->cells;
+        if (o->layout && o->layout->nweak) push(&weak_written, o);
+        if (has_ephemerons(o->layout)) push(&young_ephemerons, o);
     }
     dirty.len = 0;
-    while (young_stack.len > 0) scan_object(young_stack.items[--young_stack.len], visit_young);
+    for (size_t i = 0; i < arena_dirty.len; i++) {
+        arena_dirty.items[i].b->cards[arena_dirty.items[i].card] = 0;
+        scan_arena_card(arena_dirty.items[i].b, arena_dirty.items[i].card, visit_young);
+    }
+    arena_dirty.len = 0;
+    drain_young();
+    settle_ephemerons(&young_ephemerons, 0, visit_young, drain_young);
     clear_weak(0);
     free_dead_buffers(0);
     sweep_young();
@@ -1201,6 +1409,7 @@ static int mark_some(int64_t deadline, int64_t limit) {
             push_grey(g.o, to);
         }
         scan_range((const char *)(g.o + 1), g.o->layout, g.from, to, visit_old);
+        if (g.from == 0 && has_ephemerons(g.o->layout)) push(&old_ephemerons, g.o);
         work += to - g.from + (int64_t)sizeof(Obj);
         if (limit && work >= limit) return grey.len == 0;
         if (deadline && work - checked >= 4096) {
@@ -1217,6 +1426,7 @@ static void finish_marking(void) {
     young_collection();
     scan_roots(visit_old);
     mark_some(0, 0);
+    settle_ephemerons(&old_ephemerons, 1, visit_old, drain_old);
     clear_weak(1);
     free_dead_buffers(1);
     phase = SWEEPING;

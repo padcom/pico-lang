@@ -5,6 +5,9 @@ use super::*;
 
 /// A reference word that `gc.dumpRoots()` ignores (`PICO_REF_HIDDEN`).
 const REF_HIDDEN: u32 = 0x8000_0000;
+/// A reference word traced only while the value's first weak word's target lives
+/// (`PICO_REF_EPHEMERON`, #72).
+const REF_EPHEMERON: u32 = 0x4000_0000;
 
 impl<'ctx> Gen<'ctx, '_> {
     /// Offsets of the parts of a C-layout struct, as [`struct_layout`] places them.
@@ -138,24 +141,33 @@ impl<'ctx> Gen<'ctx, '_> {
         };
         let owner = Ty::type_owner(*sid);
         let def = self.p.layout(*sid);
-        let mut parts = vec![(Ty::Ref(Box::new(Ty::Void)), false)];
+        let mut parts = vec![(Ty::Ref(Box::new(Ty::Void)), false, false)];
         parts.extend(
             def.fields
                 .iter()
-                .zip(&def.weak)
-                .map(|((_, f), w)| (f.subst(owner, args), *w))
-                .filter(|(f, _)| self.ty(f).is_some()),
+                .zip(def.weak.iter().zip(&def.ephemeron))
+                .map(|((_, f), (w, e))| (f.subst(owner, args), *w, *e))
+                .filter(|(f, _, _)| self.ty(f).is_some()),
         );
         let (mut refs, mut weak) = (Vec::new(), Vec::new());
-        let sizes: Vec<(u64, u64)> = parts.iter().map(|(t, _)| self.size_align(t)).collect();
-        for ((t, w), at) in parts.iter().zip(Self::part_offsets(&sizes)).skip(1) {
+        let sizes: Vec<(u64, u64)> = parts.iter().map(|(t, _, _)| self.size_align(t)).collect();
+        for ((t, w, e), at) in parts.iter().zip(Self::part_offsets(&sizes)).skip(1) {
             // A weak `C?` / `T[]?` is one pointer, cleared by the collector (spec §9.3);
             // weak fields of other types hold strongly.
             match t {
                 Ty::Nullable(inner) if *w && matches!(**inner, Ty::Class(..) | Ty::Array(_)) => {
                     weak.push(at as u32)
                 }
-                _ => self.ref_words(t, at, &mut refs),
+                _ => {
+                    let first = refs.len();
+                    self.ref_words(t, at, &mut refs);
+                    // (An ephemeron field's words, flagged for the collector: #72.)
+                    if *e {
+                        for r in &mut refs[first..] {
+                            *r |= REF_EPHEMERON;
+                        }
+                    }
+                }
             }
         }
         let l = self.layout_global_weak(struct_layout(&sizes).0, &refs, &weak);
