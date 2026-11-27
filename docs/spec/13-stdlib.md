@@ -521,13 +521,7 @@ import { serve, upgradeWebSocket } from "std/http"
 
 async function handle(req: Request): Promise<Response> throws TypeError {
   const { socket, response } = upgradeWebSocket(req)   // throws TypeError if not an upgrade
-  socket.onmessage = (e) => {
-    match (e.data) {
-      s: string => socket.send(s),
-      blob: Blob => socket.send(blob),
-      a: ArrayBuffer => socket.send(a),
-    }
-  }
+  socket.onmessage = (e) => socket.send(e.data)
   response                                            // 101 Switching Protocols
 }
 ```

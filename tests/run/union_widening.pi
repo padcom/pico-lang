@@ -1,0 +1,63 @@
+// expect: 3
+// expect: hi
+// expect: true
+// expect: f: 7
+// expect: g: text
+// expect: null
+// expect: 2.5
+// expect: ret: x
+// expect: 1
+// expect: two
+// A union value goes where a wider union is expected (#314): arguments, `const`
+// annotations, returns, nullable unions, aliases and arrays of the wider type.
+type Small = string | int
+type Big = string | int | bool
+type Src = int | f64
+type Part = string | Src | bool
+
+function show(p: Big): void {
+  match (p) {
+    s: string => println(s),
+    i: int => println(i),
+    b: bool => println(b),
+  }
+}
+
+function part(p: Part): string {
+  return match (p) {
+    s: string => `g: ${s}`,
+    i: int => `f: ${i}`,
+    f: f64 => `${f}`,
+    b: bool => `${b}`,
+  }
+}
+
+function widen(x: Small): Big {
+  return x
+}
+
+const a: Small = 3
+show(a)
+const b: Small = "hi"
+const big: Big = b
+show(big)
+show(true)
+const n: int | bool = 7
+println(part(n))
+const t: string | bool = "text"
+println(part(t))
+const maybe: Small? = null
+const wider: Big? = maybe
+println(wider)
+const f: int | f64 = 2.5
+println(part(f))
+match (widen("x")) {
+  s: string => println(`ret: ${s}`),
+  _ => println("?"),
+}
+const xs: Big[] = []
+const one: Small = 1
+const two: Small = "two"
+xs.push(one)
+xs.push(two)
+for (const x of xs) show(x)

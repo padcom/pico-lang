@@ -3369,6 +3369,51 @@ impl FnBuilder<'_, '_> {
         if from.erase() == to.erase() {
             return v;
         }
+        // A union into a wider one (#314): each member, by its tag, into the wider union.
+        if let (Ty::Union(_, fms), Ty::Union(..)) = (from, to) {
+            let vp = match v {
+                Operand::Copy(p) => p,
+                other => {
+                    let p = Place::local(self.temp(from.clone()));
+                    self.assign(p.clone(), Rvalue::Use(other), span);
+                    p
+                }
+            };
+            let res = Place::local(self.temp(to.clone()));
+            let tag = self.rvalue_to_temp(
+                Rvalue::Tag(Operand::Copy(vp.clone())),
+                Ty::Int(IntTy::U32),
+                span,
+            );
+            let join = self.new_block();
+            for (i, m) in fms.iter().enumerate() {
+                let yes = self.new_block();
+                let no = self.new_block();
+                let eq = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        mir::BinOp::Eq,
+                        tag.clone(),
+                        Operand::Const(Const::Int(i as i128, IntTy::U32)),
+                    ),
+                    Ty::Bool,
+                    span,
+                );
+                self.terminate(Terminator::Branch {
+                    cond: eq,
+                    then: yes,
+                    else_: no,
+                });
+                self.switch_to(yes);
+                let part = Operand::Copy(vp.variant_field(i as u32, 0));
+                let c = self.convert(part, m, to, span);
+                self.assign(res.clone(), Rvalue::Use(c), span);
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(no);
+            }
+            self.terminate(Terminator::Goto(join));
+            self.switch_to(join);
+            return Operand::Copy(res);
+        }
         if let Ty::Union(eid, ms) = to {
             let i = ms
                 .iter()

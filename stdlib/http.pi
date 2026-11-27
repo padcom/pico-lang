@@ -281,13 +281,7 @@ export async function serve(options: ServeOptions,
 ///
 /// const server = await serve({ port: 0 }, async (req) => {
 ///   const up = upgradeWebSocket(req)
-///   up.socket.onmessage = (e) => {   // echo
-///     match (e.data) {
-///       s: string => up.socket.send(s),
-///       blob: Blob => up.socket.send(blob),
-///       a: ArrayBuffer => up.socket.send(a),
-///     }
-///   }
+///   up.socket.onmessage = (e) => up.socket.send(e.data)   // echo
 ///   return up.response
 /// })
 /// const done = Promise.withResolvers<bool, Error>()
