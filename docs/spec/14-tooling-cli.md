@@ -75,7 +75,9 @@ CPU, but no more than the available memory holds at about 512 MB each). Coverage
   `toPanic(message?)`), promises
   (`await expect(p).resolves.toBe(v)`, `await expect(p).rejects.toThrow(message?)`) and any
   other value (`toBe`, `toEqual`, `toBeNull`, `toBeDefined`). `.not` negates. Values compare by
-  their debug form (a class by its string form), so `toBe` doesn't test identity.
+  their debug form (a class by its string form), except that `toBe` on a class instance
+  (`expect<T extends object>`) tests identity, the same object (#70); `toEqual` compares its
+  fields.
 - A failed expectation stops the test (in an async test, after an `await`, it's recorded and the
   test continues). A panic or an exception escaping the test fails it, and the file goes on.
 - Environment: `PICO_TEST_FILTER`, `PICO_TEST_MODE=bench` and `PICO_TEST_TIMES=0` (no durations).

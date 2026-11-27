@@ -1903,6 +1903,141 @@ export function expect(f: () => void throws Error): FnExpect { new FnExpect(f) }
 /// // pico test: ✓ a promise
 /// ```
 export function expect<T, E extends Error>(p: Promise<T, E>): PromiseExpect<T, E> { new PromiseExpect<T, E>(p) }
+/// Expectations on an object (a class instance; #70): `toBe` is identity (the same object),
+/// `toEqual` compares string forms (the same fields).
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// class Box {
+///   constructor(public v: int) {}
+/// }
+///
+/// test("objects", () => {
+///   const a = new Box(1)
+///   expect(a).toBe(a)
+///   expect(a).not.toBe(new Box(1))   // another object
+///   expect(a).toEqual(new Box(1))    // with the same fields
+/// })
+/// // pico test: ✓ objects
+/// ```
+export class ObjectExpect<T> {
+  /// The object under test.
+  public readonly actual: T
+  /// Whether this is a `.not` expectation.
+  public readonly negated: bool
+
+  /// What `expect(obj)` makes.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ObjectExpect } from "std/test"
+  ///
+  /// class Box {}
+  ///
+  /// const e = new ObjectExpect<Box>(new Box())
+  /// println(e.negated)   // false
+  /// ```
+  constructor(actual: T, negated: bool = false) {
+    this.actual = actual
+    this.negated = negated
+  }
+
+  /// The same expectations, negated.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// class Box {}
+  ///
+  /// test("different objects", () => {
+  ///   expect(new Box()).not.toBe(new Box())
+  /// })
+  /// // pico test: ✓ different objects
+  /// ```
+  public get not(): ObjectExpect<T> { new ObjectExpect<T>(this.actual, !this.negated) }
+
+  __check(ok: bool, what: string): void {
+    if (ok == this.negated) {
+      __fail(`expected ${__show(this.actual)} ${if (this.negated) "not " else ""}${what}`)
+    }
+  }
+
+  /// The same object as `expected` (identity, not equal fields); fails with `expected <actual>
+  /// to be the same object as <expected>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// class Box {
+  ///   constructor(public v: int) {}
+  /// }
+  ///
+  /// test("identity", () => {
+  ///   const a = new Box(1)
+  ///   const b = a
+  ///   expect(b).toBe(a)
+  /// })
+  /// // pico test: ✓ identity
+  /// ```
+  public toBe(expected: T): void {
+    this.__check(__identical(this.actual, expected), `to be the same object as ${__show(expected)}`)
+  }
+
+  /// Equal string forms (the same fields, as for other values); fails with `expected <actual> to
+  /// equal <expected>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// class Box {
+  ///   constructor(public v: int) {}
+  /// }
+  ///
+  /// test("equal fields", () => {
+  ///   expect(new Box(1)).toEqual(new Box(1))
+  /// })
+  /// // pico test: ✓ equal fields
+  /// ```
+  public toEqual(expected: T): void {
+    this.__check(__show(this.actual) == __show(expected), `to equal ${__show(expected)}`)
+  }
+
+  /// Fails (an object is never null); `.not.toBeNull()` passes.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// class Box {}
+  ///
+  /// test("not null", () => {
+  ///   expect(new Box()).not.toBeNull()
+  /// })
+  /// // pico test: ✓ not null
+  /// ```
+  public toBeNull(): void { this.__check(false, "to be null") }
+
+  /// Passes (an object is always defined); `.not.toBeDefined()` fails.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// class Box {}
+  ///
+  /// test("defined", () => {
+  ///   expect(new Box()).toBeDefined()
+  /// })
+  /// // pico test: ✓ defined
+  /// ```
+  public toBeDefined(): void { this.__check(true, "to be defined") }
+}
+
 /// Expectations on any other value (structs, classes, nullable values, …): `toBe`/`toEqual` compare
 /// string forms; `toBeNull` and `toBeDefined`.
 ///
@@ -1923,3 +2058,19 @@ export function expect<T, E extends Error>(p: Promise<T, E>): PromiseExpect<T, E
 /// // pico test: ✓ anything else
 /// ```
 export function expect<T>(actual: T): Expect<T> { new Expect<T>(actual) }
+/// Expectations on an object (#70): `toBe` is identity. (Picked over `expect<T>` for class
+/// instances: its bound says more.)
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// class Box {}
+///
+/// test("an object", () => {
+///   const b = new Box()
+///   expect(b).toBe(b)
+/// })
+/// // pico test: ✓ an object
+/// ```
+export function expect<T extends object>(actual: T): ObjectExpect<T> { new ObjectExpect<T>(actual) }

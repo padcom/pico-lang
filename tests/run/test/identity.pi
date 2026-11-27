@@ -1,0 +1,37 @@
+// `expect(object).toBe` is identity (#70): `expect<T extends object>` is chosen for a class
+// instance (its bound says more), `toEqual` compares fields; a nullable value still gets
+// `expect<T>` (the bound doesn't hold), and so does a struct.
+// exit: 1
+// expect:   ✓ the same object
+// expect:   ✗ an equal object isn't the same
+// expect:       expected Box { v: 1 } to be the same object as Box { v: 1 }
+// expect:   ✓ nullable and struct values
+// expect: pico-test: 2 passed, 1 failed, 0 skipped
+import { test, expect } from "std/test"
+
+class Box {
+  constructor(public v: int) {}
+}
+
+struct Pt {
+  x: int
+}
+
+test("the same object", () => {
+  const a = new Box(1)
+  expect(a).toBe(a)
+  expect(a).not.toBe(new Box(1))
+  expect(a).toEqual(new Box(1))
+  expect(a).toBeDefined()
+})
+
+test("an equal object isn't the same", () => {
+  expect(new Box(1)).toBe(new Box(1))
+})
+
+test("nullable and struct values", () => {
+  const none: Box? = null
+  expect(none).toBeNull()
+  const p: Pt = { x: 1 }
+  expect(p).toBe({ x: 1 })
+})

@@ -6584,6 +6584,9 @@ impl<'p> Checker<'p> {
             })
             .collect();
         let mut ok: Vec<(FnId, Vec<Ty>)> = Vec::new();
+        // (Candidates that fit but whose bounds the arguments break: used only when none else
+        // fits, so the bound's error is the one reported.)
+        let mut broken: Vec<(FnId, Vec<Ty>)> = Vec::new();
         // A plain untyped lambda first fits only function types that don't return a promise
         // (so `f(x => …)` takes the sync overload of a sync/async pair); if none fits, any (#52).
         for lenient in [false, true] {
@@ -6598,6 +6601,9 @@ impl<'p> Checker<'p> {
                 };
                 let mut fits = true;
                 let mut used = Vec::new();
+                // (The argument types against the declared parameter types: what the
+                // candidate's type parameters would be, for its bounds.)
+                let mut pairs: Vec<(Ty, Ty)> = Vec::new();
                 for (k, slot) in slots.iter().enumerate() {
                     // A rest parameter's arguments: each against its element type (#155).
                     let (indices, p): (Vec<usize>, Ty) = match slot {
@@ -6614,6 +6620,18 @@ impl<'p> Checker<'p> {
                     let p = &p;
                     for i in &indices {
                         used.push(p.clone());
+                        // (A literal: its default type.)
+                        let lit = match &Self::arg_value(&args[*i]).kind {
+                            ExprKind::Int(_, None) => Some(Ty::INT),
+                            ExprKind::Float(_, None) => Some(Ty::NUMBER),
+                            ExprKind::Str(_) => Some(Ty::Str),
+                            ExprKind::Bool(_) => Some(Ty::Bool),
+                            ExprKind::Null => Some(Ty::Null),
+                            _ => None,
+                        };
+                        if let Some(t) = tys[*i].clone().or(lit) {
+                            pairs.push((p.clone(), t));
+                        }
                         // A string literal fits a literal type holding it (`"message"`
                         // where `type: "message"` is expected): overloads per event name.
                         let lit_member = matches!(
@@ -6643,11 +6661,29 @@ impl<'p> Checker<'p> {
                     }
                 }
                 if fits {
-                    ok.push((*c, used));
+                    // A candidate whose bounds these arguments break doesn't fit when another
+                    // does (`expect<T extends object>` for a `string?`, #70).
+                    let gens = &self.program.func(*c).generics;
+                    let mut subst: Vec<Option<Ty>> = vec![None; gens.len()];
+                    for (p, t) in &pairs {
+                        self.unify(c.0, p, t, &mut subst);
+                    }
+                    let bounds_ok = gens.iter().zip(&subst).all(|(g, t)| match t {
+                        Some(t) => g.bounds.iter().all(|b| self.satisfies(t, b)),
+                        None => true,
+                    });
+                    if bounds_ok {
+                        ok.push((*c, used));
+                    } else {
+                        broken.push((*c, used));
+                    }
                 }
             }
         }
         self.lenient_closures = false;
+        if ok.is_empty() {
+            ok = broken;
+        }
         // A literal argument prefers its own type (`3` → `int` over `number`).
         let lit_ty: Vec<Option<Ty>> = args
             .iter()
@@ -6695,10 +6731,32 @@ impl<'p> Checker<'p> {
                             if **ry == Ty::Void && **rx != Ty::Void))
             })
         };
-        let best: Vec<&(FnId, Vec<Ty>)> = ok
+        let mut best: Vec<&(FnId, Vec<Ty>)> = ok
             .iter()
             .filter(|(f, a)| ok.iter().all(|(g, b)| f == g || more_specific(a, b)))
             .collect();
+        // Equally specific: the one whose type parameters say more (bounds) wins
+        // (`expect<T extends object>` over `expect<T>` for a class object; the user's decision
+        // for #70).
+        if best.len() > 1 {
+            let bounded = |f: FnId| {
+                self.program
+                    .func(f)
+                    .generics
+                    .iter()
+                    .filter(|g| !g.bounds.is_empty())
+                    .count()
+            };
+            let most = best.iter().map(|(f, _)| bounded(*f)).max().unwrap_or(0);
+            let tight: Vec<&(FnId, Vec<Ty>)> = best
+                .iter()
+                .copied()
+                .filter(|(f, _)| bounded(*f) == most)
+                .collect();
+            if tight.len() == 1 {
+                best = tight;
+            }
+        }
         match (best.as_slice(), ok.len()) {
             ([one], _) => Some(one.0),
             (_, 0) => {
