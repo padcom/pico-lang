@@ -9279,10 +9279,10 @@
           "examples": [
             {
               "caption": "",
-              "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nprintln(ws.readyState == WebSocket.CONNECTING)   // true\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.send(\"hello\")\n  ws.onmessage = (e) => {\n    println(e.data)   // hello\n    ws.close()\n  }\n  ws.onclose = (e) => {\n    println(e.code)   // 1000\n    resolve()\n  }\n})\nawait server.shutdown()"
+              "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nprintln(ws.readyState == WebSocket.CONNECTING)   // true\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.send(\"hello\")\n  ws.onmessage = (e) => {\n    println(e.data)   // hello\n    ws.close()\n  }\n  ws.onclose = (e) => {\n    println(e.code)   // 1000\n    resolve()\n  }\n})\nawait server.shutdown()"
             }
           ],
-          "source": "core/websocket.pi:493",
+          "source": "core/websocket.pi:487",
           "members": [
             {
               "name": "CONNECTING",
@@ -9295,7 +9295,7 @@
                   "code": "const ws = new WebSocket(\"ws://127.0.0.1:9/\")\nprintln(ws.readyState == WebSocket.CONNECTING)   // true (just created)\nprintln(WebSocket.CONNECTING)                    // 0\nws.close()"
                 }
               ],
-              "source": "core/websocket.pi:504",
+              "source": "core/websocket.pi:498",
               "members": []
             },
             {
@@ -9306,10 +9306,10 @@
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(ws.readyState == WebSocket.OPEN)   // true\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(ws.readyState == WebSocket.OPEN)   // true\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:535",
+              "source": "core/websocket.pi:523",
               "members": []
             },
             {
@@ -9320,10 +9320,10 @@
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.close()\n    println(ws.readyState == WebSocket.CLOSING)   // true\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.close()\n    println(ws.readyState == WebSocket.CLOSING)   // true\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:566",
+              "source": "core/websocket.pi:548",
               "members": []
             },
             {
@@ -9334,10 +9334,10 @@
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close()\n  ws.onclose = (e) => resolve()\n})\nprintln(ws.readyState == WebSocket.CLOSED)   // true\nprintln(WebSocket.CLOSED)                    // 3\nawait server.shutdown()"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close()\n  ws.onclose = (e) => resolve()\n})\nprintln(ws.readyState == WebSocket.CLOSED)   // true\nprintln(WebSocket.CLOSED)                    // 3\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:596",
+              "source": "core/websocket.pi:572",
               "members": []
             },
             {
@@ -9346,7 +9346,7 @@
               "signature": "public readonly url: string",
               "doc": "<p>The URL connected to, normalized (as <code>URL.href</code>); \"\" for a server-side socket.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:599",
+              "source": "core/websocket.pi:575",
               "members": []
             },
             {
@@ -9355,7 +9355,7 @@
               "signature": "public readyState: int = 0",
               "doc": "<p>The connection's state: <code>CONNECTING</code>, <code>OPEN</code>, <code>CLOSING</code> or <code>CLOSED</code> (0–3).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:601",
+              "source": "core/websocket.pi:577",
               "members": []
             },
             {
@@ -9364,7 +9364,7 @@
               "signature": "public protocol: string = \"\"",
               "doc": "<p>The subprotocol the server chose (\"\" for none).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:605",
+              "source": "core/websocket.pi:581",
               "members": []
             },
             {
@@ -9373,7 +9373,7 @@
               "signature": "public onopen: ((e: Event) => void)? = null",
               "doc": "<p>Called once the connection is open (an <code>\"open\"</code> event).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:607",
+              "source": "core/websocket.pi:583",
               "members": []
             },
             {
@@ -9382,7 +9382,7 @@
               "signature": "public onmessage: ((e: MessageEvent) => void)? = null",
               "doc": "<p>Called for each message received while the socket is open (fragmented ones arrive whole).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:609",
+              "source": "core/websocket.pi:585",
               "members": []
             },
             {
@@ -9391,7 +9391,7 @@
               "signature": "public onclose: ((e: CloseEvent) => void)? = null",
               "doc": "<p>Called once when the connection ends, cleanly or not.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:611",
+              "source": "core/websocket.pi:587",
               "members": []
             },
             {
@@ -9400,7 +9400,7 @@
               "signature": "public onerror: ((e: Event) => void)? = null",
               "doc": "<p>Called when connecting fails (an <code>\"error\"</code> event), just before <code>onclose</code> with code 1006.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:613",
+              "source": "core/websocket.pi:589",
               "members": []
             },
             {
@@ -9409,7 +9409,7 @@
               "signature": "public binaryType: \"blob\" | \"arraybuffer\" = \"blob\"",
               "doc": "<p>How binary messages arrive in <code>data</code> (#67), as in browsers: <code>\"blob\"</code> (the default) as a\n<code>Blob</code>, <code>\"arraybuffer\"</code> as an <code>ArrayBuffer</code> (<code>new Uint8Array(buf, 0)</code> reads it).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:616",
+              "source": "core/websocket.pi:592",
               "members": []
             },
             {
@@ -9420,10 +9420,10 @@
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)\nprintln(ws.url)   // e.g. ws://127.0.0.1:41234/chat\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(e.type)   // open\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()\ntry {\n  const bad = new WebSocket(\"ftp://example.com/\")\n  bad.close()\n} catch (e: TypeError) {\n  println(\"not a ws: URL\")   // not a ws: URL\n}"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)\nprintln(ws.url)   // e.g. ws://127.0.0.1:41234/chat\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(e.type)   // open\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()\ntry {\n  const bad = new WebSocket(\"ftp://example.com/\")\n  bad.close()\n} catch (e: TypeError) {\n  println(\"not a ws: URL\")   // not a ws: URL\n}"
                 }
               ],
-              "source": "core/websocket.pi:686",
+              "source": "core/websocket.pi:656",
               "members": []
             },
             {
@@ -9437,7 +9437,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"hello\")\n    println(ws.bufferedAmount)   // 5 (until it's written)\n    ws.close()\n  }\n  ws.onclose = (e) => resolve(__void())\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:966",
+              "source": "core/websocket.pi:936",
               "members": []
             },
             {
@@ -9448,10 +9448,10 @@
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"text\")\n    ws.send(Uint8Array.from([1, 2, 3]))\n  }\n  let got = 0\n  ws.onmessage = (e) => {\n    match (e.data) {\n      s: string => println(`text: ${s}`),             // text: text\n      blob: Blob => println(`${blob.size} bytes`),    // 3 bytes\n      a: ArrayBuffer => {},\n    }\n    got += 1\n    if (got == 2) ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"text\")\n    ws.send(Uint8Array.from([1, 2, 3]))\n  }\n  let got = 0\n  ws.onmessage = (e) => {\n    match (e.data) {\n      s: string => println(`text: ${s}`),             // text: text\n      blob: Blob => println(`${blob.size} bytes`),    // 3 bytes\n      a: ArrayBuffer => {},\n    }\n    got += 1\n    if (got == 2) ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:1023",
+              "source": "core/websocket.pi:987",
               "members": []
             },
             {
@@ -9462,10 +9462,10 @@
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close(4000, \"bye\")\n  ws.onclose = (e) => {\n    println(`${e.code} ${e.reason} ${e.wasClean}`)   // 4000 bye true\n    resolve()\n  }\n})\nawait server.shutdown()"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close(4000, \"bye\")\n  ws.onclose = (e) => {\n    println(`${e.code} ${e.reason} ${e.wasClean}`)   // 4000 bye true\n    resolve()\n  }\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:1067",
+              "source": "core/websocket.pi:1025",
               "members": []
             }
           ]
@@ -15523,10 +15523,10 @@
           "examples": [
             {
               "caption": "",
-              "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\nconst server = await serve({ port: 0 }, async (req) => {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {   // echo\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  return up.response\n})\nconst done = Promise.withResolvers<bool, Error>()\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nws.onopen = (e) => ws.send(\"hello\")\nws.onmessage = (e) => {\n  println(`echo: ${e.data}`)   // echo: hello\n  ws.close()\n}\nws.onclose = (e) => done.resolve(true)\nawait done.promise\nawait server.shutdown()"
+              "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\nconst server = await serve({ port: 0 }, async (req) => {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)   // echo\n  return up.response\n})\nconst done = Promise.withResolvers<bool, Error>()\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nws.onopen = (e) => ws.send(\"hello\")\nws.onmessage = (e) => {\n  println(`echo: ${e.data}`)   // echo: hello\n  ws.close()\n}\nws.onclose = (e) => done.resolve(true)\nawait done.promise\nawait server.shutdown()"
             }
           ],
-          "source": "http.pi:304",
+          "source": "http.pi:298",
           "members": [
             {
               "name": "socket",
@@ -15534,7 +15534,7 @@
               "signature": "socket: WebSocket",
               "doc": "<p>The server's end of the connection, usable once <code>response</code> has been sent.</p>\n",
               "examples": [],
-              "source": "http.pi:306",
+              "source": "http.pi:300",
               "members": []
             },
             {
@@ -15543,7 +15543,7 @@
               "signature": "response: Response",
               "doc": "<p>The <code>101 Switching Protocols</code> response to return from the handler.</p>\n",
               "examples": [],
-              "source": "http.pi:308",
+              "source": "http.pi:302",
               "members": []
             }
           ]
@@ -15559,7 +15559,7 @@
               "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\nconst server = await serve({ port: 0 }, async (req) => {\n  const up = try? upgradeWebSocket(req)   // throws a TypeError for a plain request\n  if (up == null) {\n    return new Response(\"WebSocket only\", { status: 400 })\n  }\n  const socket = up.socket\n  socket.onmessage = (e) => socket.send(`got ${e.data}`)\n  return up.response\n})\nconst res = await fetch(`http://127.0.0.1:${server.addr.port}/`)\nprintln(`${res.status} ${await res.text()}`)   // 400 WebSocket only\nconst done = Promise.withResolvers<bool, Error>()\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nws.onopen = (e) => ws.send(\"hi\")\nws.onmessage = (e) => {\n  println(e.data)   // got hi\n  ws.close()\n}\nws.onclose = (e) => done.resolve(true)\nawait done.promise\nawait server.shutdown()"
             }
           ],
-          "source": "http.pi:341",
+          "source": "http.pi:335",
           "members": []
         }
       ]

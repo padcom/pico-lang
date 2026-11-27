@@ -82,7 +82,10 @@ function show(id: Id): string {
 }
 ```
 Narrowing works with `typeof`, `instanceof`, `==` against literals, discriminant fields and
-`match`.
+`match`. A value of a member type goes where its union is expected, and so does a union all of
+whose members are members of the wider one (`string | i64` where `string | i64 | bool` is
+expected; nullable forms too; #314). Each union is its own tagged type in memory, so the value is
+re-tagged on the way.
 
 ## 2.6 Enums (sum types)
 Payload enums are the primitive sum type:

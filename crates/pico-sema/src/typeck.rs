@@ -889,7 +889,7 @@ impl<'p> Checker<'p> {
                 _ => false,
             },
             _ => false,
-        };
+        } || self.union_widens(&found, &want.ty);
         if found.widens_to(&want.ty) || self.upcasts(&found, &want.ty) || into_union {
             self.types.coercions.insert(e.id, want.ty.clone());
             return want.ty.clone();
@@ -5497,6 +5497,22 @@ impl<'p> Checker<'p> {
 
     /// The member of a union that a `from` value converts into: the same type, else the first
     /// it widens or upcasts to.
+    /// Whether union `from` (or a nullable one) goes into union `to` (or a nullable one):
+    /// each of its members is one of `to`'s, as `union_member` puts it there (#314).
+    fn union_widens(&self, from: &Ty, to: &Ty) -> bool {
+        let (from, to) = match (from, to) {
+            (Ty::Nullable(a), Ty::Nullable(b)) => (&**a, &**b),
+            (a, Ty::Nullable(b)) => (a, &**b),
+            (a, b) => (a, b),
+        };
+        match (from, to) {
+            (Ty::Union(a, fs), Ty::Union(b, ts)) => {
+                a != b && fs.iter().all(|f| self.union_member(f, ts).is_some())
+            }
+            _ => false,
+        }
+    }
+
     fn union_member(&self, from: &Ty, members: &[Ty]) -> Option<usize> {
         members.iter().position(|m| m == from).or_else(|| {
             members
@@ -6671,6 +6687,9 @@ impl<'p> Checker<'p> {
     /// Whether a `t` goes into the union `p` (or a nullable one) as one of its members, as
     /// `coerce` puts it there.
     fn fits_union(&self, t: &Ty, p: &Ty) -> bool {
+        if self.union_widens(t, p) {
+            return true;
+        }
         match p {
             Ty::Union(_, ms) => self.union_member(t, ms).is_some(),
             Ty::Nullable(inner) => match &**inner {
