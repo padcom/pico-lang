@@ -112,6 +112,274 @@ function __wsAccept(key: string): string {
   new Base64().encode(__sha1(new TextEncoder().encode(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)))
 }
 
+/// An event, as the DOM has them: its `type`, and the `EventTarget` it was dispatched on
+/// (`target`, `null` until then). `MessageEvent` and `CloseEvent` add what they carry (#67).
+///
+/// @example
+/// ```ts
+/// const e = new Event("open")
+/// println(e.type)   // open
+/// ```
+class Event {
+  /// The kind of event: `"open"`, `"error"`, `"abort"`, …
+  public readonly type: string
+  /// What it was dispatched on (`dispatchEvent`), `null` until then.
+  public target: EventTarget? = null
+
+  /// An event of type `type`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new Event("error")
+  /// println(e.type)   // error
+  /// ```
+  constructor(type: string) {
+    this.type = type
+  }
+}
+
+/// A listener of an `EventTarget`: what's called, and the function as it was given (one of
+/// `ev`, `plain`, `msg`, `close`), which removal compares.
+struct __Listener {
+  type: string
+  f: (e: Event) => void
+  once: bool
+  ev: ((e: Event) => void)?
+  plain: (() => void)?
+  msg: ((e: MessageEvent) => void)?
+  close: ((e: CloseEvent) => void)?
+}
+
+/// Whether two listeners are the same function for the same type.
+function __sameListener(a: __Listener, b: __Listener): bool {
+  if (a.type != b.type) {
+    return false
+  }
+  const x1 = a.ev
+  const x2 = b.ev
+  if (x1 != null && x2 != null) {
+    return __identical(x1, x2)
+  }
+  const p1 = a.plain
+  const p2 = b.plain
+  if (p1 != null && p2 != null) {
+    return __identical(p1, p2)
+  }
+  const m1 = a.msg
+  const m2 = b.msg
+  if (m1 != null && m2 != null) {
+    return __identical(m1, m2)
+  }
+  const c1 = a.close
+  const c2 = b.close
+  if (c1 != null && c2 != null) {
+    return __identical(c1, c2)
+  }
+  return false
+}
+
+/// Something events are dispatched on, as in the DOM (#67): listeners added per type with
+/// `addEventListener` (once each: adding the same function again does nothing), run in the
+/// order they were added by `dispatchEvent`. A listener takes the `Event`, or nothing; for
+/// `"message"` and `"close"` it can take a `MessageEvent` or `CloseEvent` (a `WebSocket`'s).
+///
+/// @example
+/// ```ts
+/// const t = new EventTarget()
+/// const hello = (e: Event) => println(`got ${e.type}`)
+/// t.addEventListener("ping", hello)
+/// t.addEventListener("ping", () => println("once"), once: true)
+/// t.dispatchEvent(new Event("ping"))   // got ping, then: once
+/// t.removeEventListener("ping", hello)
+/// t.dispatchEvent(new Event("ping"))   // (nothing)
+/// ```
+class EventTarget {
+  listeners: __Listener[] = []
+
+  /// A target without listeners.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// println(t.dispatchEvent(new Event("x")))   // true
+  /// ```
+  constructor() {}
+
+  /// Adds `l` unless the same function listens to that type already.
+  add(l: __Listener): void {
+    for (const x of this.listeners) {
+      if (__sameListener(x, l)) {
+        return
+      }
+    }
+    this.listeners.push(l)
+  }
+
+  /// Calls `listener` with each event of `type` dispatched on this target (`once`: only the
+  /// next one). The same listener added twice for a type is called once.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// t.addEventListener("tick", (e) => println(e.type))
+  /// t.dispatchEvent(new Event("tick"))   // tick
+  /// ```
+  public addEventListener(type: string, listener: (e: Event) => void, once: bool = false): void {
+    this.add({ type, f: listener, once, ev: listener, plain: null, msg: null, close: null })
+  }
+
+  /// Calls `listener` (taking no event) for each event of `type`.
+  ///
+  /// @example
+  /// ```ts
+  /// const c = new AbortController()
+  /// c.signal.addEventListener("abort", () => println("aborted"))
+  /// c.abort()   // aborted
+  /// ```
+  public addEventListener(type: string, listener: () => void, once: bool = false): void {
+    const f = (_e: Event) => listener()
+    this.add({ type, f, once, ev: null, plain: listener, msg: null, close: null })
+  }
+
+  /// Calls `listener` with each message (a `WebSocket`'s, after its `onmessage`).
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// t.addEventListener("message", (e) => {
+  ///   match (e.data) {
+  ///     s: string => println(s),   // hi
+  ///     _ => {},
+  ///   }
+  /// })
+  /// t.dispatchEvent(new MessageEvent("hi"))
+  /// ```
+  public addEventListener(type: "message", listener: (e: MessageEvent) => void, once: bool = false): void {
+    const f = (e: Event) => {
+      match (e) {
+        m: MessageEvent => listener(m),
+        _ => {},
+      }
+    }
+    this.add({ type, f, once, ev: null, plain: null, msg: listener, close: null })
+  }
+
+  /// Calls `listener` when a `WebSocket` closes (after its `onclose`).
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// t.addEventListener("close", (e) => println(e.code))
+  /// t.dispatchEvent(new CloseEvent(1000, "", true))   // 1000
+  /// ```
+  public addEventListener(type: "close", listener: (e: CloseEvent) => void, once: bool = false): void {
+    const f = (e: Event) => {
+      match (e) {
+        c: CloseEvent => listener(c),
+        _ => {},
+      }
+    }
+    this.add({ type, f, once, ev: null, plain: null, msg: null, close: listener })
+  }
+
+  /// Stops calling `listener` for events of `type` (the same function that was added).
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// const f = (e: Event) => println("called")
+  /// t.addEventListener("tick", f)
+  /// t.removeEventListener("tick", f)
+  /// t.dispatchEvent(new Event("tick"))   // (nothing)
+  /// ```
+  public removeEventListener(type: string, listener: (e: Event) => void): void {
+    this.remove({ type, f: listener, once: false, ev: listener, plain: null, msg: null, close: null })
+  }
+
+  /// Stops calling a listener taking no event.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// const f = () => println("called")
+  /// t.addEventListener("tick", f)
+  /// t.removeEventListener("tick", f)
+  /// t.dispatchEvent(new Event("tick"))   // (nothing)
+  /// ```
+  public removeEventListener(type: string, listener: () => void): void {
+    const f = (_e: Event) => listener()
+    this.remove({ type, f, once: false, ev: null, plain: listener, msg: null, close: null })
+  }
+
+  /// Stops calling a `"message"` listener.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// const f = (e: MessageEvent) => println("message")
+  /// t.addEventListener("message", f)
+  /// t.removeEventListener("message", f)
+  /// t.dispatchEvent(new MessageEvent("x"))   // (nothing)
+  /// ```
+  public removeEventListener(type: "message", listener: (e: MessageEvent) => void): void {
+    const f = (_e: Event) => {}
+    this.remove({ type, f, once: false, ev: null, plain: null, msg: listener, close: null })
+  }
+
+  /// Stops calling a `"close"` listener.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// const f = (e: CloseEvent) => println(e.code)
+  /// t.addEventListener("close", f)
+  /// t.removeEventListener("close", f)
+  /// t.dispatchEvent(new CloseEvent(1000, "", true))   // (nothing)
+  /// ```
+  public removeEventListener(type: "close", listener: (e: CloseEvent) => void): void {
+    const f = (_e: Event) => {}
+    this.remove({ type, f, once: false, ev: null, plain: null, msg: null, close: listener })
+  }
+
+  remove(l: __Listener): void {
+    const kept: __Listener[] = []
+    for (const x of this.listeners) {
+      if (!__sameListener(x, l)) {
+        kept.push(x)
+      }
+    }
+    this.listeners = kept
+  }
+
+  /// Runs the listeners of `e.type` with `e` (its `target` set to this), in the order they were
+  /// added; `true` (nothing cancels an event here).
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// t.addEventListener("tick", (e) => println(e.target != null))
+  /// t.dispatchEvent(new Event("tick"))   // true
+  /// ```
+  public dispatchEvent(e: Event): bool {
+    e.target = this
+    // (The listeners as they are now: one added or removed by a listener waits for the next.)
+    const now: __Listener[] = []
+    for (const l of this.listeners) {
+      if (l.type == e.type) {
+        now.push(l)
+      }
+    }
+    for (const l of now) {
+      if (l.once) {
+        this.remove(l)
+      }
+      const f = l.f
+      f(e)
+    }
+    return true
+  }
+}
+
 /// A received message: text (`string`) or binary (`Uint8Array`) `data`.
 ///
 /// @example
