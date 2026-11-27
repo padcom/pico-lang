@@ -1,0 +1,7 @@
+// error: E0354
+// at: 6:1
+// An enum has no fields: a decorator's `addField` on one is reported at the decorator (#54).
+import { ClassDecl } from "std/meta"
+decorator function addsField(c: ClassDecl): void { c.addField("x: int = 1") }
+@addsField
+enum E { One }

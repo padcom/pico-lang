@@ -150,6 +150,9 @@
     "BigInt": "std-math#BigInt",
     "ClassDecl": "std-meta#ClassDecl",
     "FunctionDecl": "std-meta#FunctionDecl",
+    "FieldDecl": "std-meta#FieldDecl",
+    "ParamDecl": "std-meta#ParamDecl",
+    "BindingDecl": "std-meta#BindingDecl",
     "Args": "std-meta#Args",
     "ast": "std-meta#ast",
     "TcpStream": "std-net#TcpStream",
@@ -2707,6 +2710,15 @@
               "examples": [],
               "source": "core/comptime.pi:61",
               "members": []
+            },
+            {
+              "name": "decorators",
+              "kind": "field",
+              "signature": "decorators: DecoratorInfo[]",
+              "doc": "<p>The user decorators that were on it (#54).</p>\n",
+              "examples": [],
+              "source": "core/comptime.pi:63",
+              "members": []
             }
           ]
         },
@@ -4892,7 +4904,7 @@
               "code": "class Greeter {\n  public hello(): void {}\n  public bye(): void {}\n}\n\nfor (const m of comptime Greeter.methods) {\n  println(m.name)\n}\n// hello\n// bye"
             }
           ],
-          "source": "core/comptime.pi:79",
+          "source": "core/comptime.pi:81",
           "members": [
             {
               "name": "name",
@@ -4900,7 +4912,7 @@
               "signature": "name: string",
               "doc": "<p>The method's name.</p>\n",
               "examples": [],
-              "source": "core/comptime.pi:81",
+              "source": "core/comptime.pi:83",
               "members": []
             },
             {
@@ -4909,7 +4921,16 @@
               "signature": "signature: string",
               "doc": "<p>Its parameters and result, as messages show types: <code>(a: i64, b: string): bool</code> (#56).</p>\n",
               "examples": [],
-              "source": "core/comptime.pi:83",
+              "source": "core/comptime.pi:85",
+              "members": []
+            },
+            {
+              "name": "decorators",
+              "kind": "field",
+              "signature": "decorators: DecoratorInfo[]",
+              "doc": "<p>The user decorators that were on it (#54).</p>\n",
+              "examples": [],
+              "source": "core/comptime.pi:87",
               "members": []
             }
           ]
@@ -17449,7 +17470,7 @@
     {
       "name": "std/meta",
       "id": "std-meta",
-      "about": "<p><code>std/meta</code>: what decorators see of the declarations they decorate (spec §11.2).</p>\n<p>A <code>decorator function</code> takes a <code>ClassDecl</code> (classes and structs) or a <code>FunctionDecl</code> first,\nthen the decorator's own arguments (<code>@route(\"GET\", \"/users\")</code>). The compiler runs it at\ncompile time, before the decorated declaration is compiled, and applies what it asked for:\nadded members, hidden statics, wrapped bodies and diagnostics. Code is written as strings\n(template literals), parsed and type-checked where it's spliced in.</p>\n",
+      "about": "<p><code>std/meta</code>: what decorators see of the declarations they decorate (spec §11.2).</p>\n<p>A <code>decorator function</code> takes a <code>ClassDecl</code> (classes, structs and enums), a <code>FunctionDecl</code>\n(functions and methods), a <code>FieldDecl</code>, a <code>ParamDecl</code> or a <code>BindingDecl</code> first,\nthen the decorator's own arguments (<code>@route(\"GET\", \"/users\")</code>). The compiler runs it at\ncompile time, before the decorated declaration is compiled, and applies what it asked for:\nadded members, hidden statics, wrapped bodies and diagnostics. Code is written as strings\n(template literals), parsed and type-checked where it's spliced in.</p>\n",
       "items": [
         {
           "name": "ClassDecl",
@@ -17486,7 +17507,7 @@
               "name": "kind",
               "kind": "field",
               "signature": "public kind: string",
-              "doc": "<p><code>\"class\"</code> or <code>\"struct\"</code>.</p>\n",
+              "doc": "<p><code>\"class\"</code>, <code>\"struct\"</code> or <code>\"enum\"</code>.</p>\n",
               "examples": [],
               "source": "core/meta.pi:135",
               "members": []
@@ -17530,7 +17551,7 @@
             {
               "name": "constructor",
               "kind": "constructor",
-              "signature": "constructor( /// Which declaration this is (for the compiler). public id: int, /// The type's name, without type parameters. public name: string, /// `\"class\"` or `\"struct\"`. public kind: string, /// The instance fields' names, in declaration order (parameter properties included). public fieldNames: string[], /// The instance fields' types as written (`\"\"` where a field has no annotation). public fieldTypes: string[], /// The instance methods' names (not getters, setters or static methods). public methodNames: string[], /// The type parameters' names (`[\"T\"]` for `Box<T>`). public typeParams: string[], )",
+              "signature": "constructor( /// Which declaration this is (for the compiler). public id: int, /// The type's name, without type parameters. public name: string, /// `\"class\"`, `\"struct\"` or `\"enum\"`. public kind: string, /// The instance fields' names, in declaration order (parameter properties included). public fieldNames: string[], /// The instance fields' types as written (`\"\"` where a field has no annotation). public fieldTypes: string[], /// The instance methods' names (not getters, setters or static methods). public methodNames: string[], /// The type parameters' names (`[\"T\"]` for `Box<T>`). public typeParams: string[], )",
               "doc": "<p>Made by the compiler for each use of a decorator; a decorator receives it.</p>\n",
               "examples": [
                 {
@@ -17650,7 +17671,7 @@
                   "code": "import { ClassDecl } from \"std/meta\"\n\ndecorator function numbered(c: ClassDecl): void {\n  const next = c.addStatic(\"next\", `[0]`)\n  c.addMethod(`public static nextNumber(): int {\n    ${next}[0] += 1\n    return ${next}[0]\n  }`)\n}\n\n@numbered\nclass Ticket {}\n\nprintln(Ticket.nextNumber())   // 1\nprintln(Ticket.nextNumber())   // 2"
                 }
               ],
-              "source": "core/meta.pi:324",
+              "source": "core/meta.pi:328",
               "members": []
             },
             {
@@ -17664,7 +17685,7 @@
                   "code": "import { ClassDecl } from \"std/meta\"\n\ndecorator function needsId(c: ClassDecl): void {\n  // On a class without `id` this stops the build, pointing at the class.\n  if (!c.hasField(\"id\")) c.error(`${c.name} needs an \\`id\\` field`)\n}\n\n@needsId\nclass Customer {\n  constructor(public id: int, public name: string) {}\n}\n\nprintln(new Customer(1, \"Ada\").name)   // Ada"
                 }
               ],
-              "source": "core/meta.pi:348",
+              "source": "core/meta.pi:352",
               "members": []
             },
             {
@@ -17678,7 +17699,7 @@
                   "code": "import { ClassDecl } from \"std/meta\"\n\ndecorator function deprecated(c: ClassDecl, instead: string): void {\n  c.warn(`${c.name} is deprecated: use ${instead}`)   // a compile warning; the build goes on\n}\n\n@deprecated(\"NewApi\")\nclass OldApi {}\n\nprintln(\"built\")   // built"
                 }
               ],
-              "source": "core/meta.pi:367",
+              "source": "core/meta.pi:371",
               "members": []
             },
             {
@@ -17692,7 +17713,7 @@
                   "code": "import { ClassDecl } from \"std/meta\"\n\ndecorator function audited(c: ClassDecl): void {\n  c.note(`${c.name}: ${c.fieldNames.length} fields audited`)   // shown when it compiles\n}\n\n@audited\nclass Payment {\n  constructor(public amount: int) {}\n}\n\nprintln(new Payment(5).amount)   // 5"
                 }
               ],
-              "source": "core/meta.pi:388",
+              "source": "core/meta.pi:392",
               "members": []
             }
           ]
@@ -17708,7 +17729,7 @@
               "code": "import { FunctionDecl } from \"std/meta\"\n\ndecorator function traced(fn: FunctionDecl): void {\n  fn.wrapBody((args, call) => `\n    println(\"enter ${fn.name}\")\n    const result = ${call}\n    println(\"leave ${fn.name}\")\n    return result\n  `)\n}\n\n@traced\nfunction double(n: int): int {\n  return n * 2\n}\n\nprintln(double(21))   // enter double, leave double, then: 42"
             }
           ],
-          "source": "core/meta.pi:415",
+          "source": "core/meta.pi:709",
           "members": [
             {
               "name": "id",
@@ -17716,7 +17737,7 @@
               "signature": "public id: int",
               "doc": "<p>Which declaration this is (for the compiler).</p>\n",
               "examples": [],
-              "source": "core/meta.pi:428",
+              "source": "core/meta.pi:722",
               "members": []
             },
             {
@@ -17725,7 +17746,7 @@
               "signature": "public name: string",
               "doc": "<p>The function's name.</p>\n",
               "examples": [],
-              "source": "core/meta.pi:430",
+              "source": "core/meta.pi:724",
               "members": []
             },
             {
@@ -17734,7 +17755,7 @@
               "signature": "public paramNames: string[]",
               "doc": "<p>The parameters' names, in order.</p>\n",
               "examples": [],
-              "source": "core/meta.pi:432",
+              "source": "core/meta.pi:726",
               "members": []
             },
             {
@@ -17743,7 +17764,7 @@
               "signature": "public paramTypes: string[]",
               "doc": "<p>The parameters' types as written (<code>\"\"</code> where a parameter has no annotation).</p>\n",
               "examples": [],
-              "source": "core/meta.pi:434",
+              "source": "core/meta.pi:728",
               "members": []
             },
             {
@@ -17752,7 +17773,7 @@
               "signature": "public returnType: string",
               "doc": "<p>The return type as written (<code>\"void\"</code> if it isn't).</p>\n",
               "examples": [],
-              "source": "core/meta.pi:436",
+              "source": "core/meta.pi:730",
               "members": []
             },
             {
@@ -17761,7 +17782,7 @@
               "signature": "public isAsync: bool",
               "doc": "<p>Whether it's an <code>async function</code>.</p>\n",
               "examples": [],
-              "source": "core/meta.pi:438",
+              "source": "core/meta.pi:732",
               "members": []
             },
             {
@@ -17775,7 +17796,7 @@
                   "code": "import { FunctionDecl } from \"std/meta\"\n\n// The compiler makes one for each use of a decorator; a hand-made one shows what it holds.\nconst fn = new FunctionDecl(0, \"load\", [\"path\"], [\"string\"], \"string\", true)\nprintln(`${fn.name}(${fn.paramNames[0]}: ${fn.paramTypes[0]}): ${fn.returnType}`)   // load(path: string): string"
                 }
               ],
-              "source": "core/meta.pi:426",
+              "source": "core/meta.pi:720",
               "members": []
             },
             {
@@ -17789,7 +17810,7 @@
                   "code": "import { FunctionDecl } from \"std/meta\"\n\ndecorator function signature(fn: FunctionDecl): void {\n  const ps = fn.params.map((p) => `${p.name}: ${p.typeName}`).join(\", \")\n  fn.wrapBody((args, call) => `\n    println(\"${fn.name}(${ps})\")\n    return ${call}\n  `)\n}\n\n@signature\nfunction area(w: f64, h: f64): f64 {\n  return w * h\n}\n\nprintln(area(2.0, 3.0))   // area(w: f64, h: f64), then: 6"
                 }
               ],
-              "source": "core/meta.pi:462",
+              "source": "core/meta.pi:756",
               "members": []
             },
             {
@@ -17803,7 +17824,7 @@
                   "code": "import { FunctionDecl } from \"std/meta\"\n\ndecorator function clampResult(fn: FunctionDecl, max: int): void {\n  fn.wrapBody((args, call) => `\n    const v = ${call}\n    return if (v > ${max}) ${max} else v\n  `)\n}\n\n@clampResult(100)\nfunction score(hits: int): int {\n  return hits * 30\n}\n\nprintln(score(2))   // 60\nprintln(score(5))   // 100"
                 }
               ],
-              "source": "core/meta.pi:492",
+              "source": "core/meta.pi:786",
               "members": []
             },
             {
@@ -17817,7 +17838,7 @@
                   "code": "import { FunctionDecl } from \"std/meta\"\n\ndecorator function countCalls(fn: FunctionDecl): void {\n  const calls = fn.addStatic(\"calls\", `[0]`)\n  fn.wrapBody((args, call) => `\n    ${calls}[0] += 1\n    println(\"call #\" + ${calls}[0])\n    return ${call}\n  `)\n}\n\n@countCalls\nfunction ping(): string {\n  return \"pong\"\n}\n\nping()   // call #1\nping()   // call #2"
                 }
               ],
-              "source": "core/meta.pi:521",
+              "source": "core/meta.pi:815",
               "members": []
             },
             {
@@ -17831,7 +17852,7 @@
                   "code": "import { FunctionDecl } from \"std/meta\"\n\ndecorator function pure(fn: FunctionDecl): void {\n  // On an async function this stops the build, pointing at the function.\n  if (fn.isAsync) fn.error(`${fn.name} can't be pure: it's async`)\n}\n\n@pure\nfunction sum(a: int, b: int): int {\n  return a + b\n}\n\nprintln(sum(1, 2))   // 3"
                 }
               ],
-              "source": "core/meta.pi:545",
+              "source": "core/meta.pi:839",
               "members": []
             },
             {
@@ -17845,7 +17866,7 @@
                   "code": "import { FunctionDecl } from \"std/meta\"\n\ndecorator function slow(fn: FunctionDecl): void {\n  fn.warn(`${fn.name} is slow; don't call it in a loop`)   // a compile warning; the build goes on\n}\n\n@slow\nfunction fib(n: int): int {\n  return if (n < 2) n else fib(n - 1) + fib(n - 2)\n}\n\nprintln(fib(10))   // 55"
                 }
               ],
-              "source": "core/meta.pi:566",
+              "source": "core/meta.pi:860",
               "members": []
             },
             {
@@ -17859,7 +17880,337 @@
                   "code": "import { FunctionDecl } from \"std/meta\"\n\ndecorator function endpoint(fn: FunctionDecl, path: string): void {\n  fn.note(`${fn.name} serves ${path}`)   // shown when it compiles\n}\n\n@endpoint(\"/health\")\nfunction health(): string {\n  return \"ok\"\n}\n\nprintln(health())   // ok"
                 }
               ],
-              "source": "core/meta.pi:587",
+              "source": "core/meta.pi:881",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "FieldDecl",
+          "kind": "class",
+          "signature": "class FieldDecl",
+          "doc": "<p>A decorated field (#54): its name and type, and the class, struct or enum it's in (<code>owner</code>),\nthrough which the decorator adds members.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { FieldDecl } from \"std/meta\"\n\ndecorator function getter(f: FieldDecl): void {\n  const cap = `${f.name.slice(0, 1).toUpperCase()}${f.name.slice(1)}`\n  f.owner.addMethod(`public get${cap}(): ${f.typeName} { return this.${f.name} }`)\n}\n\nclass User {\n  @getter name: string = \"Ada\"\n}\n\nprintln(new User().getName())   // Ada"
+            }
+          ],
+          "source": "core/meta.pi:415",
+          "members": [
+            {
+              "name": "id",
+              "kind": "field",
+              "signature": "public id: int",
+              "doc": "<p>Which declaration this is (for the compiler).</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:427",
+              "members": []
+            },
+            {
+              "name": "name",
+              "kind": "field",
+              "signature": "public name: string",
+              "doc": "<p>The field's name.</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:429",
+              "members": []
+            },
+            {
+              "name": "typeName",
+              "kind": "field",
+              "signature": "public typeName: string",
+              "doc": "<p>Its type as written (<code>\"\"</code> without an annotation).</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:431",
+              "members": []
+            },
+            {
+              "name": "owner",
+              "kind": "field",
+              "signature": "public owner: ClassDecl",
+              "doc": "<p>The class, struct or enum it's in.</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:433",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor( /// Which declaration this is (for the compiler). public id: int, /// The field's name. public name: string, /// Its type as written (`\"\"` without an annotation). public typeName: string, /// The class, struct or enum it's in. public owner: ClassDecl, )",
+              "doc": "<p>Made by the compiler for each use of a field decorator.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { ClassDecl, FieldDecl } from \"std/meta\"\n\nconst owner = new ClassDecl(0, \"User\", \"class\", [\"name\"], [\"string\"], [], [])\nprintln(new FieldDecl(0, \"name\", \"string\", owner).typeName)   // string"
+                }
+              ],
+              "source": "core/meta.pi:425",
+              "members": []
+            },
+            {
+              "name": "error",
+              "kind": "method",
+              "signature": "public error(message: string): void",
+              "doc": "<p>A compile error at the decorated field (the build stops).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { FieldDecl } from \"std/meta\"\n\ndecorator function typed(f: FieldDecl): void {\n  if (f.typeName == \"\") f.error(`${f.name} needs a type`)\n}\n\nclass Point {\n  @typed public x: int = 1\n}\n\nprintln(new Point().x)   // 1"
+                }
+              ],
+              "source": "core/meta.pi:452",
+              "members": []
+            },
+            {
+              "name": "warn",
+              "kind": "method",
+              "signature": "public warn(message: string): void",
+              "doc": "<p>A compile warning at the decorated field (the build goes on).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { FieldDecl } from \"std/meta\"\n\ndecorator function typed(f: FieldDecl): void {\n  if (f.typeName == \"\") f.warn(`${f.name} should have a type`)\n}\n\nclass Point {\n  @typed public x: int = 1\n}\n\nprintln(new Point().x)   // 1"
+                }
+              ],
+              "source": "core/meta.pi:472",
+              "members": []
+            },
+            {
+              "name": "note",
+              "kind": "method",
+              "signature": "public note(message: string): void",
+              "doc": "<p>A note (information, not a problem) at the decorated field.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { FieldDecl } from \"std/meta\"\n\ndecorator function typed(f: FieldDecl): void {\n  f.note(`${f.name}: ${f.typeName}`)\n}\n\nclass Point {\n  @typed public x: int = 1\n}\n\nprintln(new Point().x)   // 1"
+                }
+              ],
+              "source": "core/meta.pi:492",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "ParamDecl",
+          "kind": "class",
+          "signature": "class ParamDecl",
+          "doc": "<p>A decorated parameter (#54): its name, type and position, and the function or method it\nbelongs to (<code>owner</code>), whose body the decorator can wrap.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { ParamDecl } from \"std/meta\"\n\ndecorator function positive(p: ParamDecl): void {\n  p.owner.wrapBody((args, call) => `\n    if (${p.name} <= 0) panic(\"${p.name} must be positive\")\n    ${call}\n  `)\n}\n\nfunction half(@positive n: int): int {\n  n / 2\n}\n\nprintln(half(8))   // 4"
+            }
+          ],
+          "source": "core/meta.pi:517",
+          "members": [
+            {
+              "name": "id",
+              "kind": "field",
+              "signature": "public id: int",
+              "doc": "<p>Which declaration this is (for the compiler).</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:529",
+              "members": []
+            },
+            {
+              "name": "name",
+              "kind": "field",
+              "signature": "public name: string",
+              "doc": "<p>The parameter's name.</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:531",
+              "members": []
+            },
+            {
+              "name": "typeName",
+              "kind": "field",
+              "signature": "public typeName: string",
+              "doc": "<p>Its type as written (<code>\"\"</code> without an annotation).</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:533",
+              "members": []
+            },
+            {
+              "name": "index",
+              "kind": "field",
+              "signature": "public index: int",
+              "doc": "<p>Its position among the parameters (from 0).</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:535",
+              "members": []
+            },
+            {
+              "name": "owner",
+              "kind": "field",
+              "signature": "public owner: FunctionDecl",
+              "doc": "<p>The function or method it belongs to.</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:537",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor( /// Which declaration this is (for the compiler). public id: int, /// The parameter's name. public name: string, /// Its type as written (`\"\"` without an annotation). public typeName: string, /// Its position among the parameters (from 0). public index: int, /// The function or method it belongs to. public owner: FunctionDecl, )",
+              "doc": "<p>Made by the compiler for each use of a parameter decorator.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { FunctionDecl, ParamDecl } from \"std/meta\"\n\nconst owner = new FunctionDecl(0, \"half\", [\"n\"], [\"int\"], \"int\", false)\nprintln(new ParamDecl(0, \"n\", \"int\", 0, owner).index)   // 0"
+                }
+              ],
+              "source": "core/meta.pi:527",
+              "members": []
+            },
+            {
+              "name": "error",
+              "kind": "method",
+              "signature": "public error(message: string): void",
+              "doc": "<p>A compile error at the decorated parameter (the build stops).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { ParamDecl } from \"std/meta\"\n\ndecorator function checked(p: ParamDecl): void {\n  if (p.typeName == \"\") p.error(`${p.name} needs a type`)\n}\n\nfunction twice(@checked n: int): int {\n  n * 2\n}\n\nprintln(twice(4))   // 8"
+                }
+              ],
+              "source": "core/meta.pi:556",
+              "members": []
+            },
+            {
+              "name": "warn",
+              "kind": "method",
+              "signature": "public warn(message: string): void",
+              "doc": "<p>A compile warning at the decorated parameter (the build goes on).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { ParamDecl } from \"std/meta\"\n\ndecorator function checked(p: ParamDecl): void {\n  if (p.index > 2) p.warn(`${p.name}: too many parameters`)\n}\n\nfunction twice(@checked n: int): int {\n  n * 2\n}\n\nprintln(twice(4))   // 8"
+                }
+              ],
+              "source": "core/meta.pi:576",
+              "members": []
+            },
+            {
+              "name": "note",
+              "kind": "method",
+              "signature": "public note(message: string): void",
+              "doc": "<p>A note (information, not a problem) at the decorated parameter.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { ParamDecl } from \"std/meta\"\n\ndecorator function checked(p: ParamDecl): void {\n  p.note(`${p.owner.name} takes ${p.name}`)\n}\n\nfunction twice(@checked n: int): int {\n  n * 2\n}\n\nprintln(twice(4))   // 8"
+                }
+              ],
+              "source": "core/meta.pi:596",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "BindingDecl",
+          "kind": "class",
+          "signature": "class BindingDecl",
+          "doc": "<p>A decorated binding (#54): a <code>const</code> or <code>let</code>, top-level or local. Its decorator checks it\n(<code>error</code>, <code>warn</code>, <code>note</code>); it doesn't generate code.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { BindingDecl } from \"std/meta\"\n\ndecorator function constant(b: BindingDecl): void {\n  if (!b.isConst) b.error(`${b.name} should be a const`)\n}\n\n@constant const limit = 10\nprintln(limit)   // 10"
+            }
+          ],
+          "source": "core/meta.pi:615",
+          "members": [
+            {
+              "name": "id",
+              "kind": "field",
+              "signature": "public id: int",
+              "doc": "<p>Which declaration this is (for the compiler).</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:626",
+              "members": []
+            },
+            {
+              "name": "name",
+              "kind": "field",
+              "signature": "public name: string",
+              "doc": "<p>The bound name (the pattern's text for a destructuring one).</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:628",
+              "members": []
+            },
+            {
+              "name": "typeName",
+              "kind": "field",
+              "signature": "public typeName: string",
+              "doc": "<p>Its type as written (<code>\"\"</code> without an annotation).</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:630",
+              "members": []
+            },
+            {
+              "name": "isConst",
+              "kind": "field",
+              "signature": "public isConst: bool",
+              "doc": "<p><code>const</code> (not <code>let</code>).</p>\n",
+              "examples": [],
+              "source": "core/meta.pi:632",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor( /// Which declaration this is (for the compiler). public id: int, /// The bound name (the pattern's text for a destructuring one). public name: string, /// Its type as written (`\"\"` without an annotation). public typeName: string, /// `const` (not `let`). public isConst: bool, )",
+              "doc": "<p>Made by the compiler for each use of a binding decorator.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { BindingDecl } from \"std/meta\"\n\nprintln(new BindingDecl(0, \"limit\", \"int\", true).isConst)   // true"
+                }
+              ],
+              "source": "core/meta.pi:624",
+              "members": []
+            },
+            {
+              "name": "error",
+              "kind": "method",
+              "signature": "public error(message: string): void",
+              "doc": "<p>A compile error at the decorated binding (the build stops).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { BindingDecl } from \"std/meta\"\n\ndecorator function checked(b: BindingDecl): void {\n  if (b.name.length == 1) b.error(`${b.name}: a longer name, please`)\n}\n\n@checked const count: int = 3\nprintln(count)   // 3"
+                }
+              ],
+              "source": "core/meta.pi:648",
+              "members": []
+            },
+            {
+              "name": "warn",
+              "kind": "method",
+              "signature": "public warn(message: string): void",
+              "doc": "<p>A compile warning at the decorated binding (the build goes on).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { BindingDecl } from \"std/meta\"\n\ndecorator function checked(b: BindingDecl): void {\n  if (b.typeName == \"\") b.warn(`${b.name} has no type annotation`)\n}\n\n@checked const count: int = 3\nprintln(count)   // 3"
+                }
+              ],
+              "source": "core/meta.pi:665",
+              "members": []
+            },
+            {
+              "name": "note",
+              "kind": "method",
+              "signature": "public note(message: string): void",
+              "doc": "<p>A note (information, not a problem) at the decorated binding.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { BindingDecl } from \"std/meta\"\n\ndecorator function checked(b: BindingDecl): void {\n  b.note(`${b.name} is checked`)\n}\n\n@checked const count: int = 3\nprintln(count)   // 3"
+                }
+              ],
+              "source": "core/meta.pi:682",
               "members": []
             }
           ]
@@ -17946,7 +18297,7 @@
               "code": "import { ClassDecl, ast } from \"std/meta\"\n\ndecorator function named(c: ClassDecl): void {\n  c.addMethod(ast.typedMethod(\"typeName\", [], \"string\", ast.returns(ast.string(c.name))))\n}\n\n@named\nclass Invoice {}\n\nprintln(new Invoice().typeName())   // Invoice"
             }
           ],
-          "source": "core/meta.pi:608",
+          "source": "core/meta.pi:902",
           "members": [
             {
               "name": "string",
@@ -17959,7 +18310,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nprintln(ast.string(\"say \\\"hi\\\"\"))   // \"say \\\"hi\\\"\""
                 }
               ],
-              "source": "core/meta.pi:617",
+              "source": "core/meta.pi:911",
               "members": []
             },
             {
@@ -17973,7 +18324,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nprintln(ast.int(42))   // 42"
                 }
               ],
-              "source": "core/meta.pi:640",
+              "source": "core/meta.pi:934",
               "members": []
             },
             {
@@ -17987,7 +18338,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nprintln(ast.bool(true))   // true"
                 }
               ],
-              "source": "core/meta.pi:652",
+              "source": "core/meta.pi:946",
               "members": []
             },
             {
@@ -18001,7 +18352,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nprintln(ast.ident(\"count\"))   // count"
                 }
               ],
-              "source": "core/meta.pi:664",
+              "source": "core/meta.pi:958",
               "members": []
             },
             {
@@ -18015,7 +18366,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nprintln(ast.field(\"name\"))   // this.name"
                 }
               ],
-              "source": "core/meta.pi:685",
+              "source": "core/meta.pi:979",
               "members": []
             },
             {
@@ -18029,7 +18380,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nprintln(ast.member(\"user\", \"email\"))   // user.email"
                 }
               ],
-              "source": "core/meta.pi:697",
+              "source": "core/meta.pi:991",
               "members": []
             },
             {
@@ -18043,7 +18394,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nprintln(ast.call(\"max\", \"a\", ast.int(0)))   // max(a, 0)"
                 }
               ],
-              "source": "core/meta.pi:709",
+              "source": "core/meta.pi:1003",
               "members": []
             },
             {
@@ -18057,7 +18408,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nprintln(ast.binary(\"a\", \"*\", ast.int(2)))   // (a * 2)"
                 }
               ],
-              "source": "core/meta.pi:721",
+              "source": "core/meta.pi:1015",
               "members": []
             },
             {
@@ -18071,7 +18422,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nprintln(ast.concat(ast.string(\"id=\"), ast.field(\"id\")))   // (\"id=\" + this.id)"
                 }
               ],
-              "source": "core/meta.pi:733",
+              "source": "core/meta.pi:1027",
               "members": []
             },
             {
@@ -18085,7 +18436,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nprintln(ast.returns(ast.field(\"total\")))   // return this.total"
                 }
               ],
-              "source": "core/meta.pi:745",
+              "source": "core/meta.pi:1039",
               "members": []
             },
             {
@@ -18099,7 +18450,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nprintln(ast.constant(\"limit\", ast.int(10)))   // const limit = 10"
                 }
               ],
-              "source": "core/meta.pi:757",
+              "source": "core/meta.pi:1051",
               "members": []
             },
             {
@@ -18113,7 +18464,7 @@
                   "code": "import { ast } from \"std/meta\"\n\nconst code = ast.block(ast.constant(\"x\", ast.int(1)), ast.returns(\"x\"))\nprintln(code)\n// {\n// const x = 1\n// return x\n// }"
                 }
               ],
-              "source": "core/meta.pi:774",
+              "source": "core/meta.pi:1068",
               "members": []
             },
             {
@@ -18127,7 +18478,7 @@
                   "code": "import { ClassDecl, ast } from \"std/meta\"\n\ndecorator function resettable(c: ClassDecl): void {\n  c.addMethod(ast.method(\"reset\", `${ast.field(\"count\")} = 0`))\n}\n\n@resettable\nclass Counter {\n  public count: int = 5\n}\n\nconst k = new Counter()\nk.reset()\nprintln(k.count)   // 0"
                 }
               ],
-              "source": "core/meta.pi:797",
+              "source": "core/meta.pi:1091",
               "members": []
             },
             {
@@ -18141,7 +18492,7 @@
                   "code": "import { ClassDecl, ast } from \"std/meta\"\n\ndecorator function scaled(c: ClassDecl): void {\n  c.addMethod(ast.typedMethod(\"scaled\", [\"k: i64\"], \"i64\", ast.returns(ast.binary(ast.field(\"n\"), \"*\", \"k\"))))\n}\n\n@scaled\nclass Amount {\n  constructor(public n: i64) {}\n}\n\nprintln(new Amount(5).scaled(3))   // 15"
                 }
               ],
-              "source": "core/meta.pi:818",
+              "source": "core/meta.pi:1112",
               "members": []
             }
           ]
@@ -20621,7 +20972,7 @@
               "code": "import { reflect } from \"std/reflect\"\n\nclass Animal {\n  constructor(public name: string) {}\n}\nclass Dog extends Animal {\n  constructor(name: string, public breed: string) { super(name) }\n}\n\nconst pet: Animal = new Dog(\"Rex\", \"collie\")\nconst t = reflect.typeOf(pet)\nprintln(t.name)                // Dog\nprintln(t.kind)                // class\nprintln(t.base!.name)          // Animal\nprintln(t.fields.length)       // 2"
             }
           ],
-          "source": "core/reflect.pi:158",
+          "source": "core/reflect.pi:156",
           "members": [
             {
               "name": "name",
@@ -20629,7 +20980,7 @@
               "signature": "public name: string",
               "doc": "<p>As messages show it: <code>Point</code>, <code>Box&lt;i64&gt;</code>, <code>i64[]</code>.</p>\n",
               "examples": [],
-              "source": "core/reflect.pi:172",
+              "source": "core/reflect.pi:170",
               "members": []
             },
             {
@@ -20638,7 +20989,7 @@
               "signature": "public kind: string",
               "doc": "<p><code>\"struct\"</code>, <code>\"class\"</code>, <code>\"interface\"</code>, <code>\"enum\"</code>, <code>\"primitive\"</code>, <code>\"array\"</code>, … (as <code>T.kind</code>).</p>\n",
               "examples": [],
-              "source": "core/reflect.pi:174",
+              "source": "core/reflect.pi:172",
               "members": []
             },
             {
@@ -20647,7 +20998,7 @@
               "signature": "public fields: Field<T>[]",
               "doc": "<p>Instance fields, inherited ones first (private ones only in the declaring module).</p>\n",
               "examples": [],
-              "source": "core/reflect.pi:176",
+              "source": "core/reflect.pi:174",
               "members": []
             },
             {
@@ -20656,7 +21007,7 @@
               "signature": "public methods: MethodInfo[]",
               "doc": "<p>Instance methods.</p>\n",
               "examples": [],
-              "source": "core/reflect.pi:178",
+              "source": "core/reflect.pi:176",
               "members": []
             },
             {
@@ -20665,7 +21016,7 @@
               "signature": "public interfaces: Type[]",
               "doc": "<p>The interfaces it declares with <code>implements</code>.</p>\n",
               "examples": [],
-              "source": "core/reflect.pi:180",
+              "source": "core/reflect.pi:178",
               "members": []
             },
             {
@@ -20674,7 +21025,7 @@
               "signature": "public base: TypeInfo<T>?",
               "doc": "<p>The base class.</p>\n",
               "examples": [],
-              "source": "core/reflect.pi:182",
+              "source": "core/reflect.pi:180",
               "members": []
             },
             {
@@ -20683,7 +21034,7 @@
               "signature": "public decorators: DecoratorInfo[]",
               "doc": "<p>The decorators on its declaration, in order.</p>\n",
               "examples": [],
-              "source": "core/reflect.pi:184",
+              "source": "core/reflect.pi:182",
               "members": []
             },
             {
@@ -20697,7 +21048,7 @@
                   "code": "import { reflect } from \"std/reflect\"\n\nstruct Point { x: int; y: int }\n\nconst t = reflect.typeOf(Point { x: 1, y: 2 })\nprintln(`${t.name}: ${t.kind}`)   // Point: struct"
                 }
               ],
-              "source": "core/reflect.pi:170",
+              "source": "core/reflect.pi:168",
               "members": []
             },
             {
@@ -20711,7 +21062,7 @@
                   "code": "import { reflect } from \"std/reflect\"\n\nclass Account {\n  constructor(public owner: string, public balance: int) {}\n}\n\nconst a = new Account(\"Ada\", 100)\nconst t = reflect.typeOf(a)\nprintln(t.field(\"balance\")!.get<int>(a))   // 100\nprintln(t.field(\"missing\") == null)        // true"
                 }
               ],
-              "source": "core/reflect.pi:202",
+              "source": "core/reflect.pi:200",
               "members": []
             },
             {
@@ -20725,7 +21076,7 @@
                   "code": "import { reflect } from \"std/reflect\"\n\nclass Box<T> {\n  constructor(public value: T) {}\n}\n\nprintln(reflect.typeOf(new Box<int>(1)).toString())   // Box<i64>"
                 }
               ],
-              "source": "core/reflect.pi:216",
+              "source": "core/reflect.pi:214",
               "members": []
             }
           ]
@@ -20741,7 +21092,7 @@
               "code": "import { reflect } from \"std/reflect\"\n\nclass User {\n  constructor(public name: string, public readonly id: int) {}\n}\n\nconst u = new User(\"Ada\", 1)\nfor (const f of reflect.typeOf(u).fields) {\n  println(`${f} readonly=${f.isReadonly}`)   // name: string readonly=false, then: id: i64 readonly=true\n}"
             }
           ],
-          "source": "core/reflect.pi:235",
+          "source": "core/reflect.pi:233",
           "members": [
             {
               "name": "name",
@@ -20749,7 +21100,7 @@
               "signature": "public name: string",
               "doc": "<p>The field's name.</p>\n",
               "examples": [],
-              "source": "core/reflect.pi:252",
+              "source": "core/reflect.pi:250",
               "members": []
             },
             {
@@ -20758,7 +21109,7 @@
               "signature": "public type: Type",
               "doc": "<p>The field's declared type.</p>\n",
               "examples": [],
-              "source": "core/reflect.pi:254",
+              "source": "core/reflect.pi:252",
               "members": []
             },
             {
@@ -20767,7 +21118,7 @@
               "signature": "public decorators: DecoratorInfo[]",
               "doc": "<p>The decorators on the field, in order.</p>\n",
               "examples": [],
-              "source": "core/reflect.pi:256",
+              "source": "core/reflect.pi:254",
               "members": []
             },
             {
@@ -20776,7 +21127,7 @@
               "signature": "public isReadonly: bool",
               "doc": "<p>Whether it's <code>readonly</code> (<code>set</code> panics for it).</p>\n",
               "examples": [],
-              "source": "core/reflect.pi:258",
+              "source": "core/reflect.pi:256",
               "members": []
             },
             {
@@ -20790,7 +21141,7 @@
                   "code": "import { reflect } from \"std/reflect\"\n\nclass Item {\n  constructor(public title: string) {}\n}\n\nconst f = reflect.typeOf<Item>().fields[0]\nprintln(f.name)        // title\nprintln(f.type.name)   // string"
                 }
               ],
-              "source": "core/reflect.pi:250",
+              "source": "core/reflect.pi:248",
               "members": []
             },
             {
@@ -20804,7 +21155,7 @@
                   "code": "import { reflect } from \"std/reflect\"\n\nclass User {\n  constructor(public name: string, public age: int) {}\n}\n\nconst u = new User(\"Ada\", 36)\nconst age = reflect.typeOf(u).field(\"age\")!.get<int>(u)\nprintln(age)   // 36"
                 }
               ],
-              "source": "core/reflect.pi:276",
+              "source": "core/reflect.pi:274",
               "members": []
             },
             {
@@ -20818,7 +21169,7 @@
                   "code": "import { reflect } from \"std/reflect\"\n\nclass User {\n  constructor(public name: string, public age: int) {}\n}\n\nconst u = new User(\"Ada\", 36)\nconst f = reflect.typeOf(u).field(\"age\")!\nf.set<int>(u, f.get<int>(u) + 1)\nprintln(u.age)   // 37"
                 }
               ],
-              "source": "core/reflect.pi:294",
+              "source": "core/reflect.pi:292",
               "members": []
             },
             {
@@ -20832,7 +21183,7 @@
                   "code": "import { reflect } from \"std/reflect\"\n\nclass Point {\n  constructor(public x: int, public tags: string[]) {}\n}\n\nconst p = new Point(3, [\"a\", \"b\"])\nconst t = reflect.typeOf(p)\nprintln(t.field(\"x\")!.show(p))      // 3\nprintln(t.field(\"tags\")!.show(p))   // [\"a\", \"b\"]"
                 }
               ],
-              "source": "core/reflect.pi:311",
+              "source": "core/reflect.pi:309",
               "members": []
             },
             {
@@ -20846,7 +21197,7 @@
                   "code": "import { reflect } from \"std/reflect\"\n\nstruct Config { port: int; host: string }\n\nfor (const f of reflect.typeOf<Config>().fields) {\n  println(f.toString())   // port: i64, then: host: string\n}"
                 }
               ],
-              "source": "core/reflect.pi:325",
+              "source": "core/reflect.pi:323",
               "members": []
             }
           ]
@@ -20914,8 +21265,8 @@
         },
         {
           "name": "DecoratorInfo",
-          "kind": "class",
-          "signature": "class DecoratorInfo",
+          "kind": "struct",
+          "signature": "struct DecoratorInfo",
           "doc": "<p>A decorator on a declaration: its name and each argument's source text\n(<code>@json.name(\"id\")</code> → <code>json.name</code>, <code>[\"\\\"id\\\"\"]</code>).</p>\n",
           "examples": [
             {
@@ -20928,39 +21279,30 @@
             {
               "name": "name",
               "kind": "field",
-              "signature": "public name: string",
-              "doc": "<p>The decorator's name as written: <code>json.name</code>.</p>\n",
-              "examples": [],
-              "source": "core/reflect.pi:108",
-              "members": []
-            },
-            {
-              "name": "args",
-              "kind": "field",
-              "signature": "public args: string[]",
-              "doc": "<p>Each argument's source text: <code>[\"\\\"id\\\"\"]</code>.</p>\n",
-              "examples": [],
-              "source": "core/reflect.pi:110",
-              "members": []
-            },
-            {
-              "name": "constructor",
-              "kind": "constructor",
-              "signature": "constructor( /// The decorator's name as written: `json.name`. public name: string, /// Each argument's source text: `[\"\\\"id\\\"\"]`. public args: string[], )",
-              "doc": "<p>Made by the compiler's reflection metadata.</p>\n",
+              "signature": "name: string",
+              "doc": "<p>The decorator's name as written: <code>json.name</code>. (A struct, #54, so comptime <code>T.fields</code> and\n<code>T.methods</code> can hold it; the compiler makes them.)</p>\n",
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { DecoratorInfo } from \"std/reflect\"\n\n// The compiler makes these for reflection metadata; a hand-made one shows the shape.\nconst d = new DecoratorInfo(\"json.name\", [\"\\\"id\\\"\"])\nprintln(d.name)   // json.name"
+                  "code": "import { DecoratorInfo } from \"std/reflect\"\n\nconst d: DecoratorInfo = { name: \"json.name\", args: [\"\\\"id\\\"\"] }\nprintln(d.name)   // json.name"
                 }
               ],
               "source": "core/reflect.pi:106",
               "members": []
             },
             {
+              "name": "args",
+              "kind": "field",
+              "signature": "args: string[]",
+              "doc": "<p>Each argument's source text: <code>[\"\\\"id\\\"\"]</code>.</p>\n",
+              "examples": [],
+              "source": "core/reflect.pi:108",
+              "members": []
+            },
+            {
               "name": "toString",
               "kind": "method",
-              "signature": "public toString(): string",
+              "signature": "toString(): string",
               "doc": "<p>As written: <code>@json.name(\"id\")</code>, <code>@sealed</code>.</p>\n",
               "examples": [
                 {
@@ -20968,7 +21310,7 @@
                   "code": "import { reflect } from \"std/reflect\"\nimport { ClassDecl } from \"std/meta\"\n\ndecorator function sealed(c: ClassDecl): void {}\ndecorator function table(c: ClassDecl, name: string): void {}\n\n@sealed\n@table(\"orders\")\nclass Order {\n  constructor(public id: int) {}\n}\n\nfor (const d of reflect.typeOf<Order>().decorators) {\n  println(d.toString())   // @sealed, then: @table(\"orders\")\n}"
                 }
               ],
-              "source": "core/reflect.pi:132",
+              "source": "core/reflect.pi:130",
               "members": []
             }
           ]

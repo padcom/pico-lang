@@ -1,0 +1,17 @@
+import { FunctionDecl } from "std/meta"
+
+/// Wraps a handler so it says which route it serves.
+export decorator function route(f: FunctionDecl, path: string): void {
+  f.wrapBody((args, call) => `
+    println("GET ${path}")
+    ${call}
+  `)
+}
+
+/// A marker that takes a name, as `@derive(Eq)` does.
+export decorator function tag(f: FunctionDecl, kind: string): void {
+  f.wrapBody((args, call) => `
+    println("tag ${kind}")
+    ${call}
+  `)
+}

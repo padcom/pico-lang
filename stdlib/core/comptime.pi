@@ -59,6 +59,8 @@ struct FieldInfo {
   name: string
   /// The field's type as written in messages, e.g. `"f64"` or `"string[]"`.
   typeName: string
+  /// The user decorators that were on it (#54).
+  decorators: __DecoratorInfo[]
 }
 
 /// A method of a type, as `T.methods` describes it.
@@ -81,6 +83,8 @@ struct MethodInfo {
   name: string
   /// Its parameters and result, as messages show types: `(a: i64, b: string): bool` (#56).
   signature: string
+  /// The user decorators that were on it (#54).
+  decorators: __DecoratorInfo[]
 }
 
 /// Hashing helpers for generated code (`Args.hashKey()` in `std/meta`).

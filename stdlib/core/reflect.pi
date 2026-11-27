@@ -92,23 +92,21 @@ class __Type {
 ///   println(d.args[0])   // "users"
 /// }
 /// ```
-class __DecoratorInfo {
-  /// Made by the compiler's reflection metadata.
+struct __DecoratorInfo {
+  /// The decorator's name as written: `json.name`. (A struct, #54, so comptime `T.fields` and
+  /// `T.methods` can hold it; the compiler makes them.)
   ///
   /// @example
   /// ```ts
   /// import { DecoratorInfo } from "std/reflect"
   ///
-  /// // The compiler makes these for reflection metadata; a hand-made one shows the shape.
-  /// const d = new DecoratorInfo("json.name", ["\"id\""])
+  /// const d: DecoratorInfo = { name: "json.name", args: ["\"id\""] }
   /// println(d.name)   // json.name
   /// ```
-  constructor(
-    /// The decorator's name as written: `json.name`.
-    public name: string,
-    /// Each argument's source text: `["\"id\""]`.
-    public args: string[],
-  ) {}
+  name: string
+  /// Each argument's source text: `["\"id\""]`.
+  args: string[]
+
   /// As written: `@json.name("id")`, `@sealed`.
   ///
   /// @example
@@ -129,8 +127,8 @@ class __DecoratorInfo {
   ///   println(d.toString())   // @sealed, then: @table("orders")
   /// }
   /// ```
-  public toString(): string {
-    if (args.length == 0) `@${name}` else `@${name}(${args.join(", ")})`
+  toString(): string {
+    if (this.args.length == 0) `@${this.name}` else `@${this.name}(${this.args.join(", ")})`
   }
 }
 

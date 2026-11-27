@@ -39,6 +39,11 @@ pub struct Modules {
     /// The decorators that were on structs and classes before they ran (for reflection), by
     /// the type's name span: each one's name and its arguments' source text.
     pub type_decorators: HashMap<Span, Vec<(String, Vec<String>)>>,
+    /// The same for fields and methods, by the member's name span (#54).
+    pub member_decorators: HashMap<Span, Vec<(String, Vec<String>)>>,
+    /// Decorators on local bindings that ran (their spans): the binding is then an ordinary
+    /// one (#54).
+    pub expanded_decorators: std::collections::HashSet<Span>,
     /// Code generated into a module (by decorators) lives in a file of its own, part of the
     /// module of the file it maps to.
     pub file_modules: HashMap<FileId, FileId>,
@@ -239,6 +244,8 @@ pub fn resolve_modules(
         binding_decorators: modules.binding_decorators.clone(),
         maybe_cells: HashSet::new(),
         type_decorators: modules.type_decorators.clone(),
+        member_decorators: modules.member_decorators.clone(),
+        expanded_decorators: modules.expanded_decorators.clone(),
         comptime_limit: None,
         comptime_depth: 0,
         len_params: HashSet::new(),
@@ -399,6 +406,10 @@ struct Resolver {
     binding_decorators: HashMap<Span, Vec<ast::Decorator>>,
     /// See [`Modules::type_decorators`].
     type_decorators: HashMap<Span, Vec<(String, Vec<String>)>>,
+    /// See [`Modules::member_decorators`].
+    member_decorators: HashMap<Span, Vec<(String, Vec<String>)>>,
+    /// See [`Modules::expanded_decorators`].
+    expanded_decorators: std::collections::HashSet<Span>,
     /// The `@comptimeLimit` of the binding whose `comptime` initializer is being lowered.
     comptime_limit: Option<u64>,
     /// How many `comptime` expressions the code being lowered is inside.
@@ -724,6 +735,7 @@ impl Resolver {
                             .type_decorators
                             .remove(&sd.name.span)
                             .unwrap_or_default();
+                        def.member_decorators = self.member_decorators_of(&sd.members);
                         if pod {
                             def.decorators.push(("pod".into(), Vec::new()));
                         }
@@ -758,6 +770,7 @@ impl Resolver {
                             .type_decorators
                             .remove(&cd.name.span)
                             .unwrap_or_default();
+                        def.member_decorators = self.member_decorators_of(&cd.members);
                         self.structs.push(def);
                         self.top_structs
                             .insert(&self.mods, cd.name.name.clone(), id);
@@ -5729,6 +5742,31 @@ impl Resolver {
                 let e = self.for_of(*is_await, *kind, pat, iter, body, s.span);
                 out.push(Stmt::Expr(e));
             }
+            // A local binding whose decorators ran (#54): an ordinary binding.
+            ast::StmtKind::Decl(d)
+                if matches!(d.kind, ast::DeclKind::Binding(_))
+                    && d.decorators
+                        .iter()
+                        .all(|dec| self.expanded_decorators.contains(&dec.span)) =>
+            {
+                let ast::DeclKind::Binding(inner) = &d.kind else {
+                    unreachable!("a binding")
+                };
+                self.lower_stmt(inner, out, tail);
+            }
+            ast::StmtKind::Decl(d) if matches!(d.kind, ast::DeclKind::Binding(_)) => {
+                let left: Vec<ast::Decorator> = d
+                    .decorators
+                    .iter()
+                    .filter(|dec| !self.expanded_decorators.contains(&dec.span))
+                    .cloned()
+                    .collect();
+                self.unknown_decorators(&left);
+                // (The binding itself is still there.)
+                if let ast::DeclKind::Binding(inner) = &d.kind {
+                    self.lower_stmt(inner, out, tail);
+                }
+            }
             ast::StmtKind::Decl(d) => {
                 let what = match &d.kind {
                     ast::DeclKind::Function(_) => "nested functions",
@@ -6916,6 +6954,28 @@ impl Resolver {
 
     /// Decorators on a class that no `decorator function` handled (those are expanded and
     /// removed before resolution).
+    /// The decorators (kept for reflection) of a type's fields and methods, by name.
+    fn member_decorators_of(
+        &mut self,
+        members: &[ast::Member],
+    ) -> HashMap<String, Vec<(String, Vec<String>)>> {
+        let mut out = HashMap::new();
+        for m in members {
+            let name = match &m.kind {
+                ast::MemberKind::Field { name, .. } => name,
+                ast::MemberKind::Method(f) => match &f.name {
+                    Some(n) => n,
+                    None => continue,
+                },
+                _ => continue,
+            };
+            if let Some(ds) = self.member_decorators.remove(&name.span) {
+                out.insert(name.name.clone(), ds);
+            }
+        }
+        out
+    }
+
     fn unknown_decorators(&mut self, decs: &[ast::Decorator]) {
         for dec in decs {
             self.not_implemented(

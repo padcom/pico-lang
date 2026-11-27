@@ -1,0 +1,77 @@
+// expect: calling add
+// expect: 5
+// expect: 5
+// expect: enum Color
+// expect: 4
+// expect: table
+// expect: id: @column("user_id")
+// expect: name:
+// expect: hello: route("/hello")
+// expect: comptime id 1
+// expect: comptime hello 1
+//
+// Decorators on methods (a `FunctionDecl`), fields (`FieldDecl`, adding through its owner),
+// parameters (`ParamDecl`, wrapping its function) and enums (`ClassDecl`), and reflection
+// of field and method decorators (#54).
+import { ClassDecl, FieldDecl, FunctionDecl, ParamDecl } from "std/meta"
+import { reflect } from "std/reflect"
+
+decorator function logged(f: FunctionDecl): void {
+  f.wrapBody((args, call) => `
+    println("calling ${f.name}")
+    ${call}
+  `)
+}
+
+decorator function described(c: ClassDecl): void {
+  c.addMethod(`public describe(): string { return "${c.kind} ${c.name}" }`)
+}
+
+decorator function getter(f: FieldDecl): void {
+  const cap = `${f.name.slice(0, 1).toUpperCase()}${f.name.slice(1)}`
+  f.owner.addMethod(`public get${cap}(): ${f.typeName} { return this.${f.name} }`)
+}
+
+decorator function positive(p: ParamDecl): void {
+  p.owner.wrapBody((args, call) => `
+    if (${p.name} <= 0) panic("${p.name} must be positive")
+    ${call}
+  `)
+}
+
+decorator function column(f: FieldDecl, name: string): void {}
+decorator function route(f: FunctionDecl, path: string): void {}
+decorator function table(c: ClassDecl, name: string): void {}
+
+class Counter {
+  @getter count: int = 3
+  @logged
+  public add(@positive n: int): int {
+    this.count += n
+    this.count
+  }
+}
+
+@described
+enum Color { Red, Green }
+
+const c = new Counter()
+println(c.add(2))
+println(c.getCount())
+println(Color.Red.describe())
+function half(@positive n: int): int { n / 2 }
+println(half(8))
+
+@table("users")
+class User {
+  @column("user_id") public id: int = 0
+  public name: string = ""
+  @route("/hello") public hello(): string { "hi" }
+}
+
+const t = reflect.typeOf<User>()
+println(t.decorators[0].name)
+for (const f of t.fields) println(`${f.name}: ${f.decorators.join(" ")}`.trimEnd())
+for (const m of t.methods) println(`${m.name}: ${m.decorators.map((d) => d.toString().slice(1)).join(" ")}`)
+for (const f of comptime User.fields) if (f.decorators.length > 0) println(`comptime ${f.name} ${f.decorators.length}`)
+for (const m of comptime User.methods) println(`comptime ${m.name} ${m.decorators.length}`)

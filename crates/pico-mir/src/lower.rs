@@ -284,6 +284,9 @@ pub fn lower(
 
 /// Why `t` can't cross to JavaScript (spec §12.3): numbers, `bool`, `string`, structs of
 /// those (copied as plain objects) and classes (handles) can.
+/// Decorators kept for reflection: each one's name and its arguments' source text.
+type Decorators = Vec<(String, Vec<String>)>;
+
 fn js_problem(p: &hir::Program, t: &Ty, seen: &mut Vec<StructId>) -> Option<String> {
     match t {
         Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Str => None,
@@ -1047,6 +1050,17 @@ impl Cx<'_> {
             .position(|d| d.name == name)
             .unwrap_or_else(|| panic!("core class `{name}`"));
         StructId(i as u32)
+    }
+
+    /// A struct's `toString(): string` (no parameters): its string form without a spec (#57).
+    fn struct_to_string(&self, t: &Ty) -> Option<FnId> {
+        let Ty::Struct(sid, _, _) = t else {
+            return None;
+        };
+        let m = self.program.struct_def(*sid).method("toString")?;
+        let f = self.program.func(m);
+        (f.params.is_empty() && f.generics.is_empty() && self.sig(m).ret.erase() == Ty::Str)
+            .then_some(m)
     }
 
     /// A class's own or inherited `toString(): string` (callable without arguments: no
@@ -2170,7 +2184,7 @@ impl FnBuilder<'_, '_> {
             M::Name => s(t.to_string()),
             M::Kind => s(kind_name(t).to_string()),
             M::Fields => {
-                let fields: Vec<(String, String)> = match &def {
+                let fields: Vec<(String, String, Decorators)> = match &def {
                     Some((d, sid, args)) => d
                         .fields
                         .iter()
@@ -2179,16 +2193,22 @@ impl FnBuilder<'_, '_> {
                             (
                                 f.name.clone(),
                                 f.ty.subst(Ty::type_owner(*sid), args).to_string(),
+                                d.member_decorators
+                                    .get(&f.name)
+                                    .cloned()
+                                    .unwrap_or_default(),
                             )
                         })
                         .collect(),
                     None => Vec::new(),
                 };
+                let dec_ty = self.info_decorator_ty("FieldInfo");
                 let vals = fields
                     .into_iter()
-                    .map(|(n, ty)| {
+                    .map(|(n, ty, ds)| {
+                        let decs = self.decorator_infos(&dec_ty, &ds, span);
                         self.rvalue_to_temp(
-                            Rvalue::Aggregate(elem.clone(), vec![s(n), s(ty)]),
+                            Rvalue::Aggregate(elem.clone(), vec![s(n), s(ty), decs]),
                             elem.clone(),
                             span,
                         )
@@ -2201,7 +2221,7 @@ impl FnBuilder<'_, '_> {
                 )
             }
             M::Methods => {
-                let names: Vec<(String, String)> = match &def {
+                let names: Vec<(String, String, Decorators)> = match &def {
                     Some((d, sid, args)) => d
                         .methods
                         .iter()
@@ -2214,16 +2234,22 @@ impl FnBuilder<'_, '_> {
                                 Ty::type_owner(*sid),
                                 args,
                             );
-                            (n.clone(), sig)
+                            (
+                                n.clone(),
+                                sig,
+                                d.member_decorators.get(n).cloned().unwrap_or_default(),
+                            )
                         })
                         .collect(),
                     None => Vec::new(),
                 };
+                let dec_ty = self.info_decorator_ty("MethodInfo");
                 let vals = names
                     .into_iter()
-                    .map(|(n, sig)| {
+                    .map(|(n, sig, ds)| {
+                        let decs = self.decorator_infos(&dec_ty, &ds, span);
                         self.rvalue_to_temp(
-                            Rvalue::Aggregate(elem.clone(), vec![s(n), s(sig)]),
+                            Rvalue::Aggregate(elem.clone(), vec![s(n), s(sig), decs]),
                             elem.clone(),
                             span,
                         )
@@ -5552,6 +5578,36 @@ impl FnBuilder<'_, '_> {
         self.switch_to(next);
     }
 
+    /// The element type of `FieldInfo`'s / `MethodInfo`'s `decorators` (`__DecoratorInfo`).
+    fn info_decorator_ty(&self, info: &str) -> Ty {
+        match self.cx.core_field_ty(info, "decorators", &[]).1 {
+            Ty::Array(e) => *e,
+            other => unreachable!("an array, not {other}"),
+        }
+    }
+
+    /// `__DecoratorInfo` objects for the decorators reflection keeps (an array of `dec_ty`).
+    fn decorator_infos(
+        &mut self,
+        dec_ty: &Ty,
+        decs: &[(String, Vec<String>)],
+        span: Span,
+    ) -> Operand {
+        let s = |v: String| Operand::Const(Const::Str(v));
+        let mut out = Vec::new();
+        for (name, dargs) in decs.iter().cloned() {
+            let items = dargs.into_iter().map(s).collect();
+            let a = self.array_of(&Ty::Str, items, span);
+            // (A struct: comptime `T.fields` can hold it.)
+            out.push(self.rvalue_to_temp(
+                Rvalue::Aggregate(dec_ty.clone(), vec![s(name), a]),
+                dec_ty.clone(),
+                span,
+            ));
+        }
+        self.array_of(dec_ty, out, span)
+    }
+
     /// A new `__TypeInfo<seen>` describing type `of` (its base class's description included).
     fn describe(&mut self, seen: &Ty, of: &Ty, file: pico_diag::FileId, span: Span) -> Operand {
         let s = |v: String| Operand::Const(Const::Str(v));
@@ -5578,7 +5634,7 @@ impl FnBuilder<'_, '_> {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         let mut ifaces = Vec::new();
-        let mut decorators = Vec::new();
+        let mut type_decs: Vec<(String, Vec<String>)> = Vec::new();
         let mut base = Operand::Const(Const::Null(Ty::Nullable(Box::new(
             self.cx.type_info_ty(seen),
         ))));
@@ -5592,7 +5648,12 @@ impl FnBuilder<'_, '_> {
                 }
                 let fty = f.ty.subst(owner, &args);
                 let ty = self.reflected_type(fty.to_string(), kind_name(&fty), span);
-                let decs = self.array_of(&dec_ty, Vec::new(), span);
+                let fdecs = d
+                    .member_decorators
+                    .get(&f.name)
+                    .cloned()
+                    .unwrap_or_default();
+                let decs = self.decorator_infos(&dec_ty, &fdecs, span);
                 let id = Operand::Const(Const::Int(field_id(program, sid, i) as i128, IntTy::I64));
                 let fo = self.core_object(
                     &field_ty,
@@ -5610,8 +5671,10 @@ impl FnBuilder<'_, '_> {
             for (n, f) in &d.methods {
                 if visible(n, d) {
                     let sig = method_signature(program, self.cx.types, *f, owner, &args);
+                    let mdecs = d.member_decorators.get(n).cloned().unwrap_or_default();
+                    let decs = self.decorator_infos(&dec_ty, &mdecs, span);
                     let m = self.rvalue_to_temp(
-                        Rvalue::Aggregate(method_ty.clone(), vec![s(n.clone()), s(sig)]),
+                        Rvalue::Aggregate(method_ty.clone(), vec![s(n.clone()), s(sig), decs]),
                         method_ty.clone(),
                         span,
                     );
@@ -5622,15 +5685,7 @@ impl FnBuilder<'_, '_> {
                 let name = program.struct_def(i).name.clone();
                 ifaces.push(self.reflected_type(name, "interface", span));
             }
-            for (name, dargs) in d.decorators.clone() {
-                let items = dargs.into_iter().map(s).collect();
-                let a = self.array_of(&Ty::Str, items, span);
-                decorators.push(self.core_object(
-                    &dec_ty,
-                    vec![("name", s(name)), ("args", a)],
-                    span,
-                ));
-            }
+            type_decs = d.decorators.clone();
             if let Some(b) = d.base {
                 let bt = program.struct_ty(b);
                 if program.struct_def(b).generics.is_empty() {
@@ -5654,7 +5709,7 @@ impl FnBuilder<'_, '_> {
         let fields = self.array_of(&field_ty, fields, span);
         let methods = self.array_of(&method_ty, methods, span);
         let ifaces = self.array_of(&elem(&ifaces_ty), ifaces, span);
-        let decorators = self.array_of(&dec_ty, decorators, span);
+        let decorators = self.decorator_infos(&dec_ty, &type_decs, span);
         let info_ty = self.cx.type_info_ty(seen);
         self.core_object(
             &info_ty,
@@ -6945,7 +7000,17 @@ impl FnBuilder<'_, '_> {
             if let Some(p) = parts.get(i) {
                 let v = self.expr(&p.expr);
                 let t = self.cx.final_ty(p.expr.id);
-                if let Some(m) = self.cx.types.formattables.get(&p.expr.id).copied() {
+                // (In generic code the checker saw `T`: a struct instance's own `toString()`
+                // is found here, as the checker finds it for a struct it sees, #57.)
+                let plain = p.spec.as_deref().is_none_or(str::is_empty);
+                let own = self
+                    .cx
+                    .types
+                    .formattables
+                    .get(&p.expr.id)
+                    .copied()
+                    .or_else(|| plain.then(|| self.cx.struct_to_string(&t)).flatten());
+                if let Some(m) = own {
                     let s =
                         self.format_call(v, &t, m, p.spec.as_deref().unwrap_or(""), p.expr.span);
                     pieces.push(s);
