@@ -6,4 +6,5 @@ run/ffi/             extern "C" needs linear memory and a C library
 run/crypto/          std/crypto runs Mbed TLS (C) in linear memory
 run/gc/roots         dumps the pico collector's roots (the host collects WasmGC objects)
 run/gc/weak          weak references (WasmGC has none yet)
+run/gc/ephemerons    WeakMap ephemerons (WasmGC has no weak references yet)
 run/gc/finalization  finalization depends on the pico collector (WasmGC has no weak references)
