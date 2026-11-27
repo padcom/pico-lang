@@ -21450,15 +21450,15 @@
             {
               "name": "get",
               "kind": "method",
-              "signature": "public get<V>(obj: T): V",
+              "signature": "public get<V = unknown>(obj: T): V",
               "doc": "<p>The field's value in <code>obj</code>.</p>\n",
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { reflect } from \"std/reflect\"\n\nclass User {\n  constructor(public name: string, public age: int) {}\n}\n\nconst u = new User(\"Ada\", 36)\nconst age = reflect.typeOf(u).field(\"age\")!.get<int>(u)\nprintln(age)   // 36"
+                  "code": "import { reflect } from \"std/reflect\"\n\nclass User {\n  constructor(public name: string, public age: int) {}\n}\n\nconst u = new User(\"Ada\", 36)\nconst age = reflect.typeOf(u).field(\"age\")!.get<int>(u)\nprintln(age)   // 36\n// Without a type: an `unknown`, whatever the field's type (#56).\nfor (const f of reflect.typeOf(u).fields) {\n  match (f.get(u)) {\n    s: string => println(`${f.name}: \"${s}\"`),   // name: \"Ada\"\n    n: int => println(`${f.name}: ${n}`),        // age: 36\n    _ => {},\n  }\n}"
                 }
               ],
-              "source": "core/reflect.pi:274",
+              "source": "core/reflect.pi:282",
               "members": []
             },
             {
@@ -21472,7 +21472,7 @@
                   "code": "import { reflect } from \"std/reflect\"\n\nclass User {\n  constructor(public name: string, public age: int) {}\n}\n\nconst u = new User(\"Ada\", 36)\nconst f = reflect.typeOf(u).field(\"age\")!\nf.set<int>(u, f.get<int>(u) + 1)\nprintln(u.age)   // 37"
                 }
               ],
-              "source": "core/reflect.pi:292",
+              "source": "core/reflect.pi:300",
               "members": []
             },
             {
@@ -21486,7 +21486,7 @@
                   "code": "import { reflect } from \"std/reflect\"\n\nclass Point {\n  constructor(public x: int, public tags: string[]) {}\n}\n\nconst p = new Point(3, [\"a\", \"b\"])\nconst t = reflect.typeOf(p)\nprintln(t.field(\"x\")!.show(p))      // 3\nprintln(t.field(\"tags\")!.show(p))   // [\"a\", \"b\"]"
                 }
               ],
-              "source": "core/reflect.pi:309",
+              "source": "core/reflect.pi:317",
               "members": []
             },
             {
@@ -21500,7 +21500,7 @@
                   "code": "import { reflect } from \"std/reflect\"\n\nstruct Config { port: int; host: string }\n\nfor (const f of reflect.typeOf<Config>().fields) {\n  println(f.toString())   // port: i64, then: host: string\n}"
                 }
               ],
-              "source": "core/reflect.pi:323",
+              "source": "core/reflect.pi:331",
               "members": []
             }
           ]
