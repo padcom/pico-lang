@@ -1,0 +1,19 @@
+// A panic after an `await` in an async test fails that test (#70); the file goes on.
+// exit: 1
+// expect:   ✓ before
+// expect:   ✗ panics after await
+// expect:       panic: index out of bounds
+// expect:   ✓ after
+// expect: pico-test: 2 passed, 1 failed, 0 skipped
+import { env } from "std/process"
+import { test, expect } from "std/test"
+import { delay } from "std/timers"
+
+env.set("PICO_TEST_TIMES", "0")
+test("before", () => expect(1).toBe(1))
+test("panics after await", async () => {
+  await delay(1)
+  const xs: int[] = []
+  println(xs[3])
+})
+test("after", () => expect(2).toBe(2))
