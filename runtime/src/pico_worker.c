@@ -206,7 +206,7 @@ static void encode_values(Enc *e, const char *src, int64_t bytes, const PicoLayo
     if (!l) return;
     for (int64_t base = 0; base + l->size <= bytes; base += l->size) {
         for (int32_t i = 0; i < l->nrefs + l->nweak; i++) {
-            size_t off = (size_t)base + (l->refs[i] & ~PICO_REF_HIDDEN);
+            size_t off = (size_t)base + PICO_REF_OFFSET(l->refs[i]);
             void *p;
             memcpy(&p, e->buf + at + off, sizeof p);
             /* Weak references aren't sent. */
@@ -277,7 +277,7 @@ static void fix_values(char *dst, int64_t bytes, const PicoLayout *l, char **obj
     if (!l) return;
     for (int64_t base = 0; base + l->size <= bytes; base += l->size) {
         for (int32_t i = 0; i < l->nrefs + l->nweak; i++) {
-            size_t off = (size_t)base + (l->refs[i] & ~PICO_REF_HIDDEN);
+            size_t off = (size_t)base + PICO_REF_OFFSET(l->refs[i]);
             uint64_t w;
             memcpy(&w, dst + off, sizeof w);
             void *p = decode_ref(w, objs);

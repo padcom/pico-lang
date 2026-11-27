@@ -211,6 +211,7 @@ pub fn lower(
                 .map(|f| (f.name.clone(), f.ty.clone()))
                 .collect(),
             weak: s.fields.iter().map(|f| f.weak).collect(),
+            ephemeron: s.fields.iter().map(|f| f.ephemeron).collect(),
             is_class: s.is_class,
             meta: mir::ClassMeta {
                 base: s.base,

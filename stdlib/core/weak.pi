@@ -58,7 +58,9 @@ class WeakRef<T extends object> {
 
 class __WeakEntry<K extends object, V> {
   @weak public key: K?
-  public value: V
+  /// Held only while `key` lives (an ephemeron, #72): a value that refers to its own key
+  /// doesn't keep the entry.
+  @ephemeron public value: V
 
   constructor(key: K, value: V) {
     this.key = key
@@ -66,8 +68,10 @@ class __WeakEntry<K extends object, V> {
   }
 }
 
-/// A map whose keys are held weakly: an entry goes away with its key. Values are held
-/// strongly, so a value that refers to its own key keeps the entry (no ephemerons yet).
+/// A map whose keys are held weakly: an entry goes away with its key. Its value is held only
+/// while the key lives (an ephemeron, #72), so a value that refers to its own key doesn't keep
+/// the entry. (Native builds; the interpreter counts references, so there a value that refers
+/// to its key keeps it, as any cycle does.)
 ///
 /// @example
 /// ```ts

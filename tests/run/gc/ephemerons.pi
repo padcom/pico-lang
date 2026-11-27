@@ -1,0 +1,69 @@
+// native-only:
+// `WeakMap` values are ephemerons (#72): held only while their key lives, so a value that
+// refers to its own key doesn't keep the entry (in full and nursery collections), while a live
+// key keeps its value, and through it whatever that value reaches, other keys included. (The
+// interpreter counts references: there such a cycle lives on, as any cycle does.)
+// expect: cycle: gone
+// expect: young cycle: gone
+// expect: chain: k2
+// expect: chain value: k2 k1
+// expect: plain: 42
+import { gc } from "std/gc"
+
+class Key {
+  public name: string
+  constructor(name: string) {
+    this.name = name
+  }
+}
+
+class Val {
+  public key: Key
+  constructor(key: Key) {
+    this.key = key
+  }
+}
+
+const m = new WeakMap<Key, Val>()
+
+function addCycle(name: string): WeakRef<Key> {
+  const k = new Key(name)
+  m.set(k, new Val(k))
+  return new WeakRef<Key>(k)
+}
+
+// (Paused, so the collector doesn't run on its own between the steps: under PICO_GC_STRESS
+// it would promote the entry while `addCycle` still holds it, and a marking already under way
+// keeps what it reaches until its next cycle.)
+gc.pause()
+gc.collect()
+const r = addCycle("cycle")
+gc.collect()
+println(`cycle: ${if (r.deref() == null) "gone" else "kept"}`)
+
+const r2 = addCycle("young")
+gc.collectYoung()
+gc.resume()
+println(`young cycle: ${if (r2.deref() == null) "gone" else "kept"}`)
+
+// k1 lives; its value reaches k2, whose value reaches k1 back.
+const k1 = new Key("k1")
+function chain(): WeakRef<Key> {
+  const k2 = new Key("k2")
+  m.set(k2, new Val(k1))
+  m.set(k1, new Val(k2))
+  return new WeakRef<Key>(k2)
+}
+const r3 = chain()
+gc.collect()
+gc.collectYoung()
+println(`chain: ${r3.deref()?.name ?? "gone"}`)
+const k2 = r3.deref()
+if (k2 != null) {
+  println(`chain value: ${m.get(k1)?.key.name ?? "?"} ${m.get(k2)?.key.name ?? "?"}`)
+}
+
+const ints = new WeakMap<Key, int>()
+ints.set(k1, 42)
+gc.collect()
+println(`plain: ${ints.get(k1) ?? 0}`)

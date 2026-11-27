@@ -3018,7 +3018,7 @@
               "code": "class Resource {}\n\nconst registry = new FinalizationRegistry<string>((held) => println(`${held} was collected`))\nlet r: Resource? = new Resource()\nregistry.register(r!, \"resource #1\")\nr = null\n// may print \"resource #1 was collected\" once the collector has run"
             }
           ],
-          "source": "core/weak.pi:298",
+          "source": "core/weak.pi:302",
           "members": [
             {
               "name": "constructor",
@@ -3031,7 +3031,7 @@
                   "code": "class File {}\n\nconst registry = new FinalizationRegistry<int>((fd) => println(`closing fd ${fd}`))\nconst f = new File()\nregistry.register(f, 3)   // \"closing fd 3\" some time after `f` is collected"
                 }
               ],
-              "source": "core/weak.pi:313",
+              "source": "core/weak.pi:317",
               "members": []
             },
             {
@@ -3045,7 +3045,7 @@
                   "code": "class Chunk {}\n\nconst registry = new FinalizationRegistry<string>((name) => println(`freed ${name}`))\nconst b = new Chunk()\nregistry.register(b, \"buffer A\")   // \"freed buffer A\" some time after `b` is collected"
                 }
               ],
-              "source": "core/weak.pi:330",
+              "source": "core/weak.pi:334",
               "members": []
             },
             {
@@ -3059,7 +3059,7 @@
                   "code": "class Handle {}\n\nconst registry = new FinalizationRegistry<string>((name) => println(`freed ${name}`))\nconst h = new Handle()\nconst token = new Handle()\nregistry.registerWithToken(h, \"handle 1\", token)\nprintln(registry.unregister(token))   // true"
                 }
               ],
-              "source": "core/weak.pi:347",
+              "source": "core/weak.pi:351",
               "members": []
             },
             {
@@ -3073,7 +3073,7 @@
                   "code": "class Handle {}\n\nconst registry = new FinalizationRegistry<string>((name) => println(`freed ${name}`))\nconst h = new Handle()\nconst token = new Handle()\nregistry.registerWithToken(h, \"handle 1\", token)\nprintln(registry.unregister(token))   // true\nprintln(registry.unregister(token))   // false"
                 }
               ],
-              "source": "core/weak.pi:371",
+              "source": "core/weak.pi:375",
               "members": []
             }
           ]
@@ -9076,14 +9076,14 @@
           "name": "WeakMap",
           "kind": "class",
           "signature": "class WeakMap<K extends object, V>",
-          "doc": "<p>A map whose keys are held weakly: an entry goes away with its key. Values are held\nstrongly, so a value that refers to its own key keeps the entry (no ephemerons yet).</p>\n",
+          "doc": "<p>A map whose keys are held weakly: an entry goes away with its key. Its value is held only\nwhile the key lives (an ephemeron, #72), so a value that refers to its own key doesn't keep\nthe entry. (Native builds; the interpreter counts references, so there a value that refers\nto its key keeps it, as any cycle does.)</p>\n",
           "examples": [
             {
               "caption": "",
               "code": "class Widget {}\n\nconst sizes = new WeakMap<Widget, int>()\nconst w = new Widget()\nsizes.set(w, 42)\nprintln(sizes.get(w))   // 42"
             }
           ],
-          "source": "core/weak.pi:81",
+          "source": "core/weak.pi:85",
           "members": [
             {
               "name": "constructor",
@@ -9096,7 +9096,7 @@
                   "code": "class Key {}\n\nconst cache = new WeakMap<Key, string>()\nprintln(cache.has(new Key()))   // false"
                 }
               ],
-              "source": "core/weak.pi:97",
+              "source": "core/weak.pi:101",
               "members": []
             },
             {
@@ -9110,7 +9110,7 @@
                   "code": "class Key {}\n\nconst m = new WeakMap<Key, int>()\nconst k = new Key()\nm.set(k, 1)\nprintln(m.has(k))           // true\nprintln(m.has(new Key()))   // false"
                 }
               ],
-              "source": "core/weak.pi:129",
+              "source": "core/weak.pi:133",
               "members": []
             },
             {
@@ -9124,7 +9124,7 @@
                   "code": "class Key {}\n\nconst m = new WeakMap<Key, string>()\nconst k = new Key()\nm.set(k, \"meta\")\nprintln(m.get(k))           // meta\nprintln(m.get(new Key()))   // null"
                 }
               ],
-              "source": "core/weak.pi:145",
+              "source": "core/weak.pi:149",
               "members": []
             },
             {
@@ -9138,7 +9138,7 @@
                   "code": "class Key {}\n\nconst m = new WeakMap<Key, int>()\nconst k = new Key()\nm.set(k, 1).set(k, 2)\nprintln(m.get(k))   // 2"
                 }
               ],
-              "source": "core/weak.pi:164",
+              "source": "core/weak.pi:168",
               "members": []
             },
             {
@@ -9152,7 +9152,7 @@
                   "code": "class Key {}\n\nconst m = new WeakMap<Key, int>()\nconst k = new Key()\nm.set(k, 1)\nprintln(m.delete(k))   // true\nprintln(m.has(k))      // false"
                 }
               ],
-              "source": "core/weak.pi:189",
+              "source": "core/weak.pi:193",
               "members": []
             }
           ]
@@ -9211,7 +9211,7 @@
               "code": "class Item {}\n\nconst visited = new WeakSet<Item>()\nconst a = new Item()\nvisited.add(a)\nprintln(visited.has(a))   // true"
             }
           ],
-          "source": "core/weak.pi:208",
+          "source": "core/weak.pi:212",
           "members": [
             {
               "name": "constructor",
@@ -9224,7 +9224,7 @@
                   "code": "class Item {}\n\nconst s = new WeakSet<Item>()\nprintln(s.has(new Item()))   // false"
                 }
               ],
-              "source": "core/weak.pi:220",
+              "source": "core/weak.pi:224",
               "members": []
             },
             {
@@ -9238,7 +9238,7 @@
                   "code": "class Item {}\n\nconst s = new WeakSet<Item>()\nconst a = new Item()\ns.add(a)\nprintln(s.has(a))            // true\nprintln(s.has(new Item()))   // false"
                 }
               ],
-              "source": "core/weak.pi:234",
+              "source": "core/weak.pi:238",
               "members": []
             },
             {
@@ -9252,7 +9252,7 @@
                   "code": "class Item {}\n\nconst s = new WeakSet<Item>()\nconst a = new Item()\ns.add(a).add(a)\nprintln(s.has(a))   // true"
                 }
               ],
-              "source": "core/weak.pi:249",
+              "source": "core/weak.pi:253",
               "members": []
             },
             {
@@ -9266,7 +9266,7 @@
                   "code": "class Item {}\n\nconst s = new WeakSet<Item>()\nconst a = new Item()\ns.add(a)\nprintln(s.delete(a))   // true\nprintln(s.delete(a))   // false"
                 }
               ],
-              "source": "core/weak.pi:266",
+              "source": "core/weak.pi:270",
               "members": []
             }
           ]

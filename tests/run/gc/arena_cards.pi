@@ -1,0 +1,43 @@
+// A nursery collection scans only the arena objects allocated since the last one and the
+// arena cards written since (#72): a young object that only an older arena object refers to,
+// through a store after the collector saw it, survives.
+// expect: kept: 7
+// expect: still: 7
+import { gc } from "std/gc"
+
+class Item {
+  public n: int
+  constructor(n: int) {
+    this.n = n
+  }
+}
+
+class Box {
+  public item: Item? = null
+}
+
+function fresh(n: int): Item {
+  return new Item(n)
+}
+
+/// Moves the item from `pool` to `box` (in a frame of its own, gone once it returns).
+function stash(box: Box, pool: Item[]): void {
+  box.item = pool.pop()
+}
+
+function watcher(pool: Item[]): WeakRef<Item> {
+  return new WeakRef<Item>(pool[0])
+}
+
+const pool = [fresh(7)]
+const watch = watcher(pool)
+arena {
+  const box = new Box()
+  gc.collectYoung()
+  // (The box was seen; the store marks its card. Then only the box refers to the item.)
+  stash(box, pool)
+  gc.collectYoung()
+  println(`kept: ${watch.deref()?.n ?? -1}`)
+  gc.collectYoung()
+  println(`still: ${box.item?.n ?? -1}`)
+}
