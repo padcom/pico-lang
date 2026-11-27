@@ -28,8 +28,8 @@ async function handle(req: Request): Promise<Response> throws TypeError {
         println(`server got: ${s}`)
         ws.send(s.toUpperCase())
       },
-      b: Uint8Array => ws.send(b),
-      blob: Blob => {},
+      a: ArrayBuffer => ws.send(a),
+      blob: Blob => ws.send(blob),
     }
   }
   ws.onclose = (e) => {
@@ -50,7 +50,7 @@ ws.onmessage = (e) => {
       println(`client got: ${s}`)
       ws.send("a message over ten bytes")
     },
-    b: Uint8Array => {},
+    a: ArrayBuffer => {},
     blob: Blob => {},
   }
 }

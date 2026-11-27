@@ -1,7 +1,7 @@
 // expect: blob 3 bytes: abc
 // expect: text: hello
 // expect: echoed blob 5 bytes
-// `binaryType = "blob"` (#67): binary messages arrive as a `Blob` in `data` (text stays a
+// `binaryType = "blob"` (#67, the default, as in browsers): binary messages arrive as a `Blob` in `data` (text stays a
 // `string`), and `send` takes a `Blob`.
 import { serve, upgradeWebSocket } from "std/http"
 
@@ -11,10 +11,11 @@ async function handle(req: Request): Promise<Response> throws Error {
     up.socket.send(Uint8Array.from([97, 98, 99]))
     up.socket.send("hello")
   }
-  // (The server side keeps the default: bytes; it echoes them back.)
+  // (The server side takes them as an `ArrayBuffer` and echoes them back.)
+  up.socket.binaryType = "arraybuffer"
   up.socket.onmessage = (e) => {
     match (e.data) {
-      b: Uint8Array => up.socket.send(b),
+      a: ArrayBuffer => up.socket.send(a),
       s: string => {},
       blob: Blob => {},
     }
@@ -44,7 +45,7 @@ await new Promise<void>((resolve, _reject) => {
         println(`text: ${s}`)
         ws.send(new Blob(["hi", Uint8Array.from([33, 33, 33])]))
       },
-      b: Uint8Array => println("bytes?"),
+      a: ArrayBuffer => println("bytes?"),
     }
   }
 })

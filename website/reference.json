@@ -13,7 +13,10 @@
     "AsyncIterator": "core#AsyncIterator",
     "Base64": "core#Base64",
     "BindOptions": "core#BindOptions",
+    "Blob": "core#Blob",
+    "BlobPart": "core#BlobPart",
     "BodyInit": "core#BodyInit",
+    "BufferSource": "core#BufferSource",
     "BuildInfo": "core#BuildInfo",
     "CloseEvent": "core#CloseEvent",
     "ComputedOptions": "core#ComputedOptions",
@@ -29,6 +32,7 @@
     "EffectScope": "core#EffectScope",
     "Error": "core#Error",
     "Event": "core#Event",
+    "EventTarget": "core#EventTarget",
     "FieldInfo": "core#FieldInfo",
     "FinalizationRegistry": "core#FinalizationRegistry",
     "Float32Array": "core#Float32Array",
@@ -216,7 +220,7 @@
               "code": "import { delay } from \"std/timers\"\n\nconst c = new AbortController()\nsetTimeout(() => c.abort(), 10)\ntry {\n  await delay(1000, c.signal)\n  println(\"finished\")\n} catch (e: AbortError) {\n  println(\"cancelled\")   // cancelled\n}"
             }
           ],
-          "source": "core/abort.pi:173",
+          "source": "core/abort.pi:165",
           "members": [
             {
               "name": "signal",
@@ -224,7 +228,7 @@
               "signature": "public signal: AbortSignal = new AbortSignal()",
               "doc": "<p>The signal to hand to the operations this controller cancels.</p>\n",
               "examples": [],
-              "source": "core/abort.pi:175",
+              "source": "core/abort.pi:167",
               "members": []
             },
             {
@@ -238,7 +242,7 @@
                   "code": "const c = new AbortController()\nprintln(c.signal.aborted)   // false"
                 }
               ],
-              "source": "core/abort.pi:184",
+              "source": "core/abort.pi:176",
               "members": []
             },
             {
@@ -252,7 +256,7 @@
                   "code": "const c = new AbortController()\nc.abort(new Error(\"no longer needed\"))\nprintln(c.signal.aborted)                    // true\nprintln(c.signal.reason!.cause!.message)     // no longer needed"
                 }
               ],
-              "source": "core/abort.pi:195",
+              "source": "core/abort.pi:187",
               "members": []
             }
           ]
@@ -303,7 +307,7 @@
         {
           "name": "AbortSignal",
           "kind": "class",
-          "signature": "class AbortSignal",
+          "signature": "class AbortSignal extends EventTarget",
           "doc": "<p>Tells operations that they should stop (<code>AbortController.signal</code>).</p>\n",
           "examples": [
             {
@@ -355,20 +359,6 @@
               "members": []
             },
             {
-              "name": "addEventListener",
-              "kind": "method",
-              "signature": "public addEventListener(type: string, f: () => void): void",
-              "doc": "<p>Calls <code>f</code> when the signal is aborted (<code>type</code> must be <code>\"abort\"</code>); right away (as a\nmicrotask) if it already is.</p>\n",
-              "examples": [
-                {
-                  "caption": "",
-                  "code": "const c = new AbortController()\nc.signal.addEventListener(\"abort\", () => println(\"aborted\"))\nc.abort()   // aborted"
-                }
-              ],
-              "source": "core/abort.pi:79",
-              "members": []
-            },
-            {
               "name": "throwIfAborted",
               "kind": "method",
               "signature": "public throwIfAborted(): void throws AbortError",
@@ -379,7 +369,7 @@
                   "code": "const s = AbortSignal.abort(new Error(\"shutting down\"))\ntry {\n  s.throwIfAborted()\n} catch (e: AbortError) {\n  println(e.cause!.message)   // shutting down\n}"
                 }
               ],
-              "source": "core/abort.pi:101",
+              "source": "core/abort.pi:91",
               "members": []
             },
             {
@@ -393,7 +383,7 @@
                   "code": "const s = AbortSignal.abort()\nprintln(s.aborted)                // true\nprintln(s.reason!.message)        // This operation was aborted"
                 }
               ],
-              "source": "core/abort.pi:133",
+              "source": "core/abort.pi:125",
               "members": []
             },
             {
@@ -407,7 +397,7 @@
                   "code": "import { delay } from \"std/timers\"\n\nconst s = AbortSignal.timeout(10)\ns.addEventListener(\"abort\", () => println(\"timed out\"))\nawait delay(50)               // timed out\nprintln(s.reason!.cause!.message)   // The operation timed out"
                 }
               ],
-              "source": "core/abort.pi:150",
+              "source": "core/abort.pi:142",
               "members": []
             }
           ]
@@ -902,12 +892,152 @@
           ]
         },
         {
+          "name": "Blob",
+          "kind": "class",
+          "signature": "class Blob",
+          "doc": "<p>Immutable bytes with a media type, as the Web has them (#67): a WebSocket message with\n<code>binaryType = \"blob\"</code>, or made from parts. Read it with <code>text()</code>, <code>bytes()</code>,\n<code>arrayBuffer()</code> or <code>stream()</code>; <code>slice()</code> makes a smaller one.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "const b = new Blob([\"hello, \", Uint8Array.from([119, 111, 114, 108, 100])], type: \"text/plain\")\nprintln(b.size)           // 12\nprintln(b.type)           // text/plain\nprintln(await b.text())   // hello, world"
+            }
+          ],
+          "source": "core/fetch.pi:1373",
+          "members": [
+            {
+              "name": "type",
+              "kind": "field",
+              "signature": "public readonly type: string",
+              "doc": "<p>The media type it was given (<code>\"\"</code> for none), lower-cased.</p>\n",
+              "examples": [],
+              "source": "core/fetch.pi:1376",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor(parts: BlobPart[] = [], type: string = \"\")",
+              "doc": "<p>A blob of <code>parts</code> joined: strings as UTF-8, bytes copied, blobs' bytes.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const b = new Blob([\"ab\", new Blob([\"c\"])])\nprintln(b.size)   // 3"
+                }
+              ],
+              "source": "core/fetch.pi:1385",
+              "members": []
+            },
+            {
+              "name": "size",
+              "kind": "property",
+              "signature": "public get size(): int",
+              "doc": "<p>How many bytes it holds.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "println(new Blob([\"héllo\"]).size)   // 6"
+                }
+              ],
+              "source": "core/fetch.pi:1397",
+              "members": []
+            },
+            {
+              "name": "text",
+              "kind": "method",
+              "signature": "public text(): Promise<string>",
+              "doc": "<p>Its bytes as text (UTF-8; invalid sequences as U+FFFD).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "println(await new Blob([\"hi\"]).text())   // hi"
+                }
+              ],
+              "source": "core/fetch.pi:1407",
+              "members": []
+            },
+            {
+              "name": "bytes",
+              "kind": "method",
+              "signature": "public bytes(): Promise<Uint8Array>",
+              "doc": "<p>A copy of its bytes.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const bytes = await new Blob([\"ab\"]).bytes()\nprintln(bytes.get(0))   // 97"
+                }
+              ],
+              "source": "core/fetch.pi:1418",
+              "members": []
+            },
+            {
+              "name": "arrayBuffer",
+              "kind": "method",
+              "signature": "public arrayBuffer(): Promise<ArrayBuffer>",
+              "doc": "<p>A copy of its bytes as an <code>ArrayBuffer</code>.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const buf = await new Blob([\"abc\"]).arrayBuffer()\nprintln(buf.byteLength)   // 3"
+                }
+              ],
+              "source": "core/fetch.pi:1429",
+              "members": []
+            },
+            {
+              "name": "slice",
+              "kind": "method",
+              "signature": "public slice(start: int = 0, end: int? = null, type: string = \"\"): Blob",
+              "doc": "<p>Bytes <code>start</code> up to <code>end</code> as a new blob (negative counts from the end, as with arrays),\nwith media type <code>type</code>.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const b = new Blob([\"hello\"])\nprintln(await b.slice(1, 3).text())   // el\nprintln(await b.slice(-2).text())     // lo"
+                }
+              ],
+              "source": "core/fetch.pi:1442",
+              "members": []
+            },
+            {
+              "name": "stream",
+              "kind": "method",
+              "signature": "public stream(): ReadableStream<Uint8Array>",
+              "doc": "<p>Its bytes as a stream (one chunk).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "for await (const chunk of new Blob([\"abc\"]).stream()) {\n  println(chunk.length)   // 3\n}"
+                }
+              ],
+              "source": "core/fetch.pi:1456",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "BlobPart",
+          "kind": "type",
+          "signature": "type BlobPart = string | BufferSource | Blob",
+          "doc": "<p>What a <code>Blob</code> is made of, as in browsers: text (UTF-8), binary data, or another blob.</p>\n",
+          "examples": [],
+          "source": "core/fetch.pi:1337",
+          "members": []
+        },
+        {
           "name": "BodyInit",
           "kind": "type",
           "signature": "type BodyInit = string | Uint8Array | ReadableStream<Uint8Array> | URLSearchParams",
           "doc": "<p>What a request or response body can be made from.</p>\n",
           "examples": [],
           "source": "core/fetch.pi:222",
+          "members": []
+        },
+        {
+          "name": "BufferSource",
+          "kind": "type",
+          "signature": "type BufferSource = ArrayBuffer | Uint8Array | Int32Array | Uint32Array | Float32Array | Float64Array | DataView",
+          "doc": "<p>Binary data as Web APIs take it: an <code>ArrayBuffer</code>, or a view of one (a typed array or a\n<code>DataView</code>).</p>\n",
+          "examples": [],
+          "source": "core/fetch.pi:1333",
           "members": []
         },
         {
@@ -946,7 +1076,7 @@
         {
           "name": "CloseEvent",
           "kind": "class",
-          "signature": "class CloseEvent",
+          "signature": "class CloseEvent extends Event",
           "doc": "<p>How a connection ended: <code>code</code> (1000 normal, 1005 none given, 1006 lost), <code>reason</code>, and\nwhether the closing handshake completed (<code>wasClean</code>).</p>\n",
           "examples": [
             {
@@ -954,24 +1084,15 @@
               "code": "const e = new CloseEvent(1000, \"done\", true)\nprintln(`${e.type} ${e.code} ${e.reason} ${e.wasClean}`)   // close 1000 done true"
             }
           ],
-          "source": "core/websocket.pi:176",
+          "source": "core/websocket.pi:424",
           "members": [
-            {
-              "name": "type",
-              "kind": "field",
-              "signature": "public readonly type: string = \"close\"",
-              "doc": "<p>Always <code>\"close\"</code>.</p>\n",
-              "examples": [],
-              "source": "core/websocket.pi:178",
-              "members": []
-            },
             {
               "name": "code",
               "kind": "field",
               "signature": "public readonly code: int",
               "doc": "<p>The close code: the peer's, 1005 when its close frame had none, 1006 when the connection was\nlost or failed.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:181",
+              "source": "core/websocket.pi:427",
               "members": []
             },
             {
@@ -980,7 +1101,7 @@
               "signature": "public readonly reason: string",
               "doc": "<p>The peer's close reason (\"\" for none).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:183",
+              "source": "core/websocket.pi:429",
               "members": []
             },
             {
@@ -989,7 +1110,7 @@
               "signature": "public readonly wasClean: bool",
               "doc": "<p>Whether the closing handshake completed.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:185",
+              "source": "core/websocket.pi:431",
               "members": []
             },
             {
@@ -1003,7 +1124,7 @@
                   "code": "const lost = new CloseEvent(1006, \"\", false)\nprintln(lost.code)       // 1006\nprintln(lost.wasClean)   // false"
                 }
               ],
-              "source": "core/websocket.pi:194",
+              "source": "core/websocket.pi:440",
               "members": []
             }
           ]
@@ -2646,22 +2767,31 @@
           "name": "Event",
           "kind": "class",
           "signature": "class Event",
-          "doc": "<p>A plain event (<code>open</code>, <code>error</code>).</p>\n",
+          "doc": "<p>An event, as the DOM has them: its <code>type</code>, and the <code>EventTarget</code> it was dispatched on\n(<code>target</code>, <code>null</code> until then). <code>MessageEvent</code> and <code>CloseEvent</code> add what they carry (#67).</p>\n",
           "examples": [
             {
               "caption": "",
               "code": "const e = new Event(\"open\")\nprintln(e.type)   // open"
             }
           ],
-          "source": "core/websocket.pi:122",
+          "source": "core/websocket.pi:123",
           "members": [
             {
               "name": "type",
               "kind": "field",
               "signature": "public readonly type: string",
-              "doc": "<p><code>\"open\"</code> or <code>\"error\"</code>.</p>\n",
+              "doc": "<p>The kind of event: <code>\"open\"</code>, <code>\"error\"</code>, <code>\"abort\"</code>, …</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:124",
+              "source": "core/websocket.pi:125",
+              "members": []
+            },
+            {
+              "name": "target",
+              "kind": "field",
+              "signature": "public target: EventTarget? = null",
+              "doc": "<p>What it was dispatched on (<code>dispatchEvent</code>), <code>null</code> until then.</p>\n",
+              "examples": [],
+              "source": "core/websocket.pi:127",
               "members": []
             },
             {
@@ -2675,7 +2805,162 @@
                   "code": "const e = new Event(\"error\")\nprintln(e.type)   // error"
                 }
               ],
-              "source": "core/websocket.pi:132",
+              "source": "core/websocket.pi:136",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "EventTarget",
+          "kind": "class",
+          "signature": "class EventTarget",
+          "doc": "<p>Something events are dispatched on, as in the DOM (#67): listeners added per type with\n<code>addEventListener</code> (once each: adding the same function again does nothing), run in the\norder they were added by <code>dispatchEvent</code>. A listener takes the <code>Event</code>, or nothing; for\n<code>\"message\"</code> and <code>\"close\"</code> it can take a <code>MessageEvent</code> or <code>CloseEvent</code> (a <code>WebSocket</code>'s).</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "const t = new EventTarget()\nconst hello = (e: Event) => println(`got ${e.type}`)\nt.addEventListener(\"ping\", hello)\nt.addEventListener(\"ping\", () => println(\"once\"), once: true)\nt.dispatchEvent(new Event(\"ping\"))   // got ping, then: once\nt.removeEventListener(\"ping\", hello)\nt.dispatchEvent(new Event(\"ping\"))   // (nothing)"
+            }
+          ],
+          "source": "core/websocket.pi:196",
+          "members": [
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor()",
+              "doc": "<p>A target without listeners.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const t = new EventTarget()\nprintln(t.dispatchEvent(new Event(\"x\")))   // true"
+                }
+              ],
+              "source": "core/websocket.pi:206",
+              "members": []
+            },
+            {
+              "name": "addEventListener",
+              "kind": "method",
+              "signature": "public addEventListener(type: string, listener: (e: Event) => void, once: bool = false): void",
+              "doc": "<p>Calls <code>listener</code> with each event of <code>type</code> dispatched on this target (<code>once</code>: only the\nnext one). The same listener added twice for a type is called once.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const t = new EventTarget()\nt.addEventListener(\"tick\", (e) => println(e.type))\nt.dispatchEvent(new Event(\"tick\"))   // tick"
+                }
+              ],
+              "source": "core/websocket.pi:227",
+              "members": []
+            },
+            {
+              "name": "addEventListener",
+              "kind": "method",
+              "signature": "public addEventListener(type: string, listener: () => void, once: bool = false): void",
+              "doc": "<p>Calls <code>listener</code> (taking no event) for each event of <code>type</code>.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const c = new AbortController()\nc.signal.addEventListener(\"abort\", () => println(\"aborted\"))\nc.abort()   // aborted"
+                }
+              ],
+              "source": "core/websocket.pi:239",
+              "members": []
+            },
+            {
+              "name": "addEventListener",
+              "kind": "method",
+              "signature": "public addEventListener(type: \"message\", listener: (e: MessageEvent) => void, once: bool = false): void",
+              "doc": "<p>Calls <code>listener</code> with each message (a <code>WebSocket</code>'s, after its <code>onmessage</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const t = new EventTarget()\nt.addEventListener(\"message\", (e) => {\n  match (e.data) {\n    s: string => println(s),   // hi\n    _ => {},\n  }\n})\nt.dispatchEvent(new MessageEvent(\"hi\"))"
+                }
+              ],
+              "source": "core/websocket.pi:257",
+              "members": []
+            },
+            {
+              "name": "addEventListener",
+              "kind": "method",
+              "signature": "public addEventListener(type: \"close\", listener: (e: CloseEvent) => void, once: bool = false): void",
+              "doc": "<p>Calls <code>listener</code> when a <code>WebSocket</code> closes (after its <code>onclose</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const t = new EventTarget()\nt.addEventListener(\"close\", (e) => println(e.code))\nt.dispatchEvent(new CloseEvent(1000, \"\", true))   // 1000"
+                }
+              ],
+              "source": "core/websocket.pi:275",
+              "members": []
+            },
+            {
+              "name": "removeEventListener",
+              "kind": "method",
+              "signature": "public removeEventListener(type: string, listener: (e: Event) => void): void",
+              "doc": "<p>Stops calling <code>listener</code> for events of <code>type</code> (the same function that was added).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const t = new EventTarget()\nconst f = (e: Event) => println(\"called\")\nt.addEventListener(\"tick\", f)\nt.removeEventListener(\"tick\", f)\nt.dispatchEvent(new Event(\"tick\"))   // (nothing)"
+                }
+              ],
+              "source": "core/websocket.pi:295",
+              "members": []
+            },
+            {
+              "name": "removeEventListener",
+              "kind": "method",
+              "signature": "public removeEventListener(type: string, listener: () => void): void",
+              "doc": "<p>Stops calling a listener taking no event.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const t = new EventTarget()\nconst f = () => println(\"called\")\nt.addEventListener(\"tick\", f)\nt.removeEventListener(\"tick\", f)\nt.dispatchEvent(new Event(\"tick\"))   // (nothing)"
+                }
+              ],
+              "source": "core/websocket.pi:309",
+              "members": []
+            },
+            {
+              "name": "removeEventListener",
+              "kind": "method",
+              "signature": "public removeEventListener(type: \"message\", listener: (e: MessageEvent) => void): void",
+              "doc": "<p>Stops calling a <code>\"message\"</code> listener.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const t = new EventTarget()\nconst f = (e: MessageEvent) => println(\"message\")\nt.addEventListener(\"message\", f)\nt.removeEventListener(\"message\", f)\nt.dispatchEvent(new MessageEvent(\"x\"))   // (nothing)"
+                }
+              ],
+              "source": "core/websocket.pi:324",
+              "members": []
+            },
+            {
+              "name": "removeEventListener",
+              "kind": "method",
+              "signature": "public removeEventListener(type: \"close\", listener: (e: CloseEvent) => void): void",
+              "doc": "<p>Stops calling a <code>\"close\"</code> listener.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const t = new EventTarget()\nconst f = (e: CloseEvent) => println(e.code)\nt.addEventListener(\"close\", f)\nt.removeEventListener(\"close\", f)\nt.dispatchEvent(new CloseEvent(1000, \"\", true))   // (nothing)"
+                }
+              ],
+              "source": "core/websocket.pi:339",
+              "members": []
+            },
+            {
+              "name": "dispatchEvent",
+              "kind": "method",
+              "signature": "public dispatchEvent(e: Event): bool",
+              "doc": "<p>Runs the listeners of <code>e.type</code> with <code>e</code> (its <code>target</code> set to this), in the order they were\nadded; <code>true</code> (nothing cancels an event here).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const t = new EventTarget()\nt.addEventListener(\"tick\", (e) => println(e.target != null))\nt.dispatchEvent(new Event(\"tick\"))   // true"
+                }
+              ],
+              "source": "core/websocket.pi:363",
               "members": []
             }
           ]
@@ -4849,46 +5134,37 @@
         {
           "name": "MessageEvent",
           "kind": "class",
-          "signature": "class MessageEvent",
-          "doc": "<p>A received message: text (<code>string</code>) or binary (<code>Uint8Array</code>) <code>data</code>.</p>\n",
+          "signature": "class MessageEvent extends Event",
+          "doc": "<p>A received message: text (<code>string</code>) or binary (<code>Blob</code> or <code>ArrayBuffer</code>) <code>data</code>.</p>\n",
           "examples": [
             {
               "caption": "",
-              "code": "const text = new MessageEvent(\"hi\")\nmatch (text.data) {\n  s: string => println(`text: ${s}`),              // text: hi\n  b: Uint8Array => println(`${b.length} bytes`),\n}\nprintln(text.type)   // message"
+              "code": "const text = new MessageEvent(\"hi\")\nmatch (text.data) {\n  s: string => println(`text: ${s}`),              // text: hi\n  a: ArrayBuffer => println(`${a.byteLength} bytes`),\n  blob: Blob => println(`${blob.size} bytes`),\n}\nprintln(text.type)   // message"
             }
           ],
-          "source": "core/websocket.pi:148",
+          "source": "core/websocket.pi:395",
           "members": [
-            {
-              "name": "type",
-              "kind": "field",
-              "signature": "public readonly type: string = \"message\"",
-              "doc": "<p>Always <code>\"message\"</code>.</p>\n",
-              "examples": [],
-              "source": "core/websocket.pi:150",
-              "members": []
-            },
             {
               "name": "data",
               "kind": "field",
-              "signature": "public readonly data: string | Uint8Array",
-              "doc": "<p>The message: a <code>string</code> for a text message, a <code>Uint8Array</code> for a binary one.</p>\n",
+              "signature": "public readonly data: string | ArrayBuffer | Blob",
+              "doc": "<p>The message, as in browsers: a <code>string</code> for a text message; a binary one as a <code>Blob</code>, or\nan <code>ArrayBuffer</code> when the socket's <code>binaryType</code> is <code>\"arraybuffer\"</code> (#67).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:152",
+              "source": "core/websocket.pi:398",
               "members": []
             },
             {
               "name": "constructor",
               "kind": "constructor",
-              "signature": "constructor(data: string | Uint8Array)",
+              "signature": "constructor(data: string | ArrayBuffer | Blob)",
               "doc": "<p>A message event carrying <code>data</code>.</p>\n",
               "examples": [
                 {
                   "caption": "",
-                  "code": "const e = new MessageEvent(Uint8Array.from([1, 2, 3]))\nmatch (e.data) {\n  s: string => println(s),\n  b: Uint8Array => println(`${b.length} bytes`),   // 3 bytes\n}"
+                  "code": "const e = new MessageEvent(Uint8Array.from([1, 2, 3]).buffer)\nmatch (e.data) {\n  s: string => println(s),\n  a: ArrayBuffer => println(`${a.byteLength} bytes`),   // 3 bytes\n  blob: Blob => {},\n}"
                 }
               ],
-              "source": "core/websocket.pi:163",
+              "source": "core/websocket.pi:410",
               "members": []
             }
           ]
@@ -8998,15 +9274,15 @@
         {
           "name": "WebSocket",
           "kind": "class",
-          "signature": "class WebSocket",
+          "signature": "class WebSocket extends EventTarget",
           "doc": "<p>A WebSocket connection. Assign <code>onopen</code>, <code>onmessage</code>, <code>onclose</code> and <code>onerror</code> right after\ncreating it (they're called from the event loop); <code>send</code> text or bytes once it's open.</p>\n",
           "examples": [
             {
               "caption": "",
-              "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nprintln(ws.readyState == WebSocket.CONNECTING)   // true\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.send(\"hello\")\n  ws.onmessage = (e) => {\n    println(e.data)   // hello\n    ws.close()\n  }\n  ws.onclose = (e) => {\n    println(e.code)   // 1000\n    resolve()\n  }\n})\nawait server.shutdown()"
+              "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nprintln(ws.readyState == WebSocket.CONNECTING)   // true\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.send(\"hello\")\n  ws.onmessage = (e) => {\n    println(e.data)   // hello\n    ws.close()\n  }\n  ws.onclose = (e) => {\n    println(e.code)   // 1000\n    resolve()\n  }\n})\nawait server.shutdown()"
             }
           ],
-          "source": "core/websocket.pi:240",
+          "source": "core/websocket.pi:493",
           "members": [
             {
               "name": "CONNECTING",
@@ -9019,7 +9295,7 @@
                   "code": "const ws = new WebSocket(\"ws://127.0.0.1:9/\")\nprintln(ws.readyState == WebSocket.CONNECTING)   // true (just created)\nprintln(WebSocket.CONNECTING)                    // 0\nws.close()"
                 }
               ],
-              "source": "core/websocket.pi:251",
+              "source": "core/websocket.pi:504",
               "members": []
             },
             {
@@ -9030,10 +9306,10 @@
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(ws.readyState == WebSocket.OPEN)   // true\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(ws.readyState == WebSocket.OPEN)   // true\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:276",
+              "source": "core/websocket.pi:535",
               "members": []
             },
             {
@@ -9044,10 +9320,10 @@
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.close()\n    println(ws.readyState == WebSocket.CLOSING)   // true\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.close()\n    println(ws.readyState == WebSocket.CLOSING)   // true\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:301",
+              "source": "core/websocket.pi:566",
               "members": []
             },
             {
@@ -9058,10 +9334,10 @@
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close()\n  ws.onclose = (e) => resolve()\n})\nprintln(ws.readyState == WebSocket.CLOSED)   // true\nprintln(WebSocket.CLOSED)                    // 3\nawait server.shutdown()"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close()\n  ws.onclose = (e) => resolve()\n})\nprintln(ws.readyState == WebSocket.CLOSED)   // true\nprintln(WebSocket.CLOSED)                    // 3\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:325",
+              "source": "core/websocket.pi:596",
               "members": []
             },
             {
@@ -9070,7 +9346,7 @@
               "signature": "public readonly url: string",
               "doc": "<p>The URL connected to, normalized (as <code>URL.href</code>); \"\" for a server-side socket.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:328",
+              "source": "core/websocket.pi:599",
               "members": []
             },
             {
@@ -9079,7 +9355,7 @@
               "signature": "public readyState: int = 0",
               "doc": "<p>The connection's state: <code>CONNECTING</code>, <code>OPEN</code>, <code>CLOSING</code> or <code>CLOSED</code> (0–3).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:330",
+              "source": "core/websocket.pi:601",
               "members": []
             },
             {
@@ -9088,7 +9364,7 @@
               "signature": "public protocol: string = \"\"",
               "doc": "<p>The subprotocol the server chose (\"\" for none).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:334",
+              "source": "core/websocket.pi:605",
               "members": []
             },
             {
@@ -9097,7 +9373,7 @@
               "signature": "public onopen: ((e: Event) => void)? = null",
               "doc": "<p>Called once the connection is open (an <code>\"open\"</code> event).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:336",
+              "source": "core/websocket.pi:607",
               "members": []
             },
             {
@@ -9106,7 +9382,7 @@
               "signature": "public onmessage: ((e: MessageEvent) => void)? = null",
               "doc": "<p>Called for each message received while the socket is open (fragmented ones arrive whole).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:338",
+              "source": "core/websocket.pi:609",
               "members": []
             },
             {
@@ -9115,7 +9391,7 @@
               "signature": "public onclose: ((e: CloseEvent) => void)? = null",
               "doc": "<p>Called once when the connection ends, cleanly or not.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:340",
+              "source": "core/websocket.pi:611",
               "members": []
             },
             {
@@ -9124,7 +9400,16 @@
               "signature": "public onerror: ((e: Event) => void)? = null",
               "doc": "<p>Called when connecting fails (an <code>\"error\"</code> event), just before <code>onclose</code> with code 1006.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:342",
+              "source": "core/websocket.pi:613",
+              "members": []
+            },
+            {
+              "name": "binaryType",
+              "kind": "field",
+              "signature": "public binaryType: \"blob\" | \"arraybuffer\" = \"blob\"",
+              "doc": "<p>How binary messages arrive in <code>data</code> (#67), as in browsers: <code>\"blob\"</code> (the default) as a\n<code>Blob</code>, <code>\"arraybuffer\"</code> as an <code>ArrayBuffer</code> (<code>new Uint8Array(buf, 0)</code> reads it).</p>\n",
+              "examples": [],
+              "source": "core/websocket.pi:616",
               "members": []
             },
             {
@@ -9135,10 +9420,10 @@
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)\nprintln(ws.url)   // e.g. ws://127.0.0.1:41234/chat\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(e.type)   // open\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()\ntry {\n  const bad = new WebSocket(\"ftp://example.com/\")\n  bad.close()\n} catch (e: TypeError) {\n  println(\"not a ws: URL\")   // not a ws: URL\n}"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)\nprintln(ws.url)   // e.g. ws://127.0.0.1:41234/chat\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(e.type)   // open\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()\ntry {\n  const bad = new WebSocket(\"ftp://example.com/\")\n  bad.close()\n} catch (e: TypeError) {\n  println(\"not a ws: URL\")   // not a ws: URL\n}"
                 }
               ],
-              "source": "core/websocket.pi:388",
+              "source": "core/websocket.pi:686",
               "members": []
             },
             {
@@ -9152,21 +9437,21 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"hello\")\n    println(ws.bufferedAmount)   // 5 (until it's written)\n    ws.close()\n  }\n  ws.onclose = (e) => resolve(__void())\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:666",
+              "source": "core/websocket.pi:966",
               "members": []
             },
             {
               "name": "send",
               "kind": "method",
-              "signature": "public send(data: string | Uint8Array): void",
+              "signature": "public send(data: string | BufferSource | Blob): void",
               "doc": "<p>Sends a text or binary message. Panics before the socket is open.</p>\n",
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"text\")\n    ws.send(Uint8Array.from([1, 2, 3]))\n  }\n  let got = 0\n  ws.onmessage = (e) => {\n    match (e.data) {\n      s: string => println(`text: ${s}`),             // text: text\n      b: Uint8Array => println(`${b.length} bytes`),  // 3 bytes\n    }\n    got += 1\n    if (got == 2) ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"text\")\n    ws.send(Uint8Array.from([1, 2, 3]))\n  }\n  let got = 0\n  ws.onmessage = (e) => {\n    match (e.data) {\n      s: string => println(`text: ${s}`),             // text: text\n      blob: Blob => println(`${blob.size} bytes`),    // 3 bytes\n      a: ArrayBuffer => {},\n    }\n    got += 1\n    if (got == 2) ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:716",
+              "source": "core/websocket.pi:1023",
               "members": []
             },
             {
@@ -9177,10 +9462,10 @@
               "examples": [
                 {
                   "caption": "",
-                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close(4000, \"bye\")\n  ws.onclose = (e) => {\n    println(`${e.code} ${e.reason} ${e.wasClean}`)   // 4000 bye true\n    resolve()\n  }\n})\nawait server.shutdown()"
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close(4000, \"bye\")\n  ws.onclose = (e) => {\n    println(`${e.code} ${e.reason} ${e.wasClean}`)   // 4000 bye true\n    resolve()\n  }\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:753",
+              "source": "core/websocket.pi:1067",
               "members": []
             }
           ]
@@ -15238,10 +15523,10 @@
           "examples": [
             {
               "caption": "",
-              "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\nconst server = await serve({ port: 0 }, async (req) => {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)   // echo\n  return up.response\n})\nconst done = Promise.withResolvers<bool, Error>()\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nws.onopen = (e) => ws.send(\"hello\")\nws.onmessage = (e) => {\n  println(`echo: ${e.data}`)   // echo: hello\n  ws.close()\n}\nws.onclose = (e) => done.resolve(true)\nawait done.promise\nawait server.shutdown()"
+              "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\nconst server = await serve({ port: 0 }, async (req) => {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => {   // echo\n    match (e.data) {\n      s: string => up.socket.send(s),\n      blob: Blob => up.socket.send(blob),\n      a: ArrayBuffer => up.socket.send(a),\n    }\n  }\n  return up.response\n})\nconst done = Promise.withResolvers<bool, Error>()\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nws.onopen = (e) => ws.send(\"hello\")\nws.onmessage = (e) => {\n  println(`echo: ${e.data}`)   // echo: hello\n  ws.close()\n}\nws.onclose = (e) => done.resolve(true)\nawait done.promise\nawait server.shutdown()"
             }
           ],
-          "source": "http.pi:298",
+          "source": "http.pi:304",
           "members": [
             {
               "name": "socket",
@@ -15249,7 +15534,7 @@
               "signature": "socket: WebSocket",
               "doc": "<p>The server's end of the connection, usable once <code>response</code> has been sent.</p>\n",
               "examples": [],
-              "source": "http.pi:300",
+              "source": "http.pi:306",
               "members": []
             },
             {
@@ -15258,7 +15543,7 @@
               "signature": "response: Response",
               "doc": "<p>The <code>101 Switching Protocols</code> response to return from the handler.</p>\n",
               "examples": [],
-              "source": "http.pi:302",
+              "source": "http.pi:308",
               "members": []
             }
           ]
@@ -15274,7 +15559,7 @@
               "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\nconst server = await serve({ port: 0 }, async (req) => {\n  const up = try? upgradeWebSocket(req)   // throws a TypeError for a plain request\n  if (up == null) {\n    return new Response(\"WebSocket only\", { status: 400 })\n  }\n  const socket = up.socket\n  socket.onmessage = (e) => socket.send(`got ${e.data}`)\n  return up.response\n})\nconst res = await fetch(`http://127.0.0.1:${server.addr.port}/`)\nprintln(`${res.status} ${await res.text()}`)   // 400 WebSocket only\nconst done = Promise.withResolvers<bool, Error>()\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nws.onopen = (e) => ws.send(\"hi\")\nws.onmessage = (e) => {\n  println(e.data)   // got hi\n  ws.close()\n}\nws.onclose = (e) => done.resolve(true)\nawait done.promise\nawait server.shutdown()"
             }
           ],
-          "source": "http.pi:335",
+          "source": "http.pi:341",
           "members": []
         }
       ]

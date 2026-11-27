@@ -1328,8 +1328,36 @@ async function __fetchFollowing(first: Request, ctl: __FetchControl): Promise<Re
   throw new TypeError("fetch failed")
 }
 
-/// What a `Blob` is made of: text (UTF-8), bytes, or another blob.
-type BlobPart = string | Uint8Array | Blob
+/// Binary data as Web APIs take it: an `ArrayBuffer`, or a view of one (a typed array or a
+/// `DataView`).
+type BufferSource = ArrayBuffer | Uint8Array | Int32Array | Uint32Array | Float32Array |
+Float64Array | DataView
+
+/// What a `Blob` is made of, as in browsers: text (UTF-8), binary data, or another blob.
+type BlobPart = string | BufferSource | Blob
+
+/// The bytes of a part (a view, not a copy, except for text).
+function __partBytes(p: BlobPart): Uint8Array {
+  return match (p) {
+    s: string => new TextEncoder().encode(s),
+    o: Blob => o.__bytes,
+    a: ArrayBuffer => new Uint8Array(a, 0),
+    b: Uint8Array => b,
+    v: Int32Array => new Uint8Array(v.buffer, v.byteOffset, v.byteLength),
+    v: Uint32Array => new Uint8Array(v.buffer, v.byteOffset, v.byteLength),
+    v: Float32Array => new Uint8Array(v.buffer, v.byteOffset, v.byteLength),
+    v: Float64Array => new Uint8Array(v.buffer, v.byteOffset, v.byteLength),
+    v: DataView => new Uint8Array(v.buffer, v.byteOffset, v.byteLength),
+  }
+}
+
+/// `bytes` as an `ArrayBuffer` of their own (`bytes.buffer` when they're all of it).
+function __ownBuffer(bytes: Uint8Array): ArrayBuffer {
+  if (bytes.byteOffset == 0 && bytes.length == bytes.buffer.byteLength) {
+    return bytes.buffer
+  }
+  return bytes.slice().buffer
+}
 
 /// Immutable bytes with a media type, as the Web has them (#67): a WebSocket message with
 /// `binaryType = "blob"`, or made from parts. Read it with `text()`, `bytes()`,
@@ -1355,16 +1383,8 @@ class Blob {
   /// println(b.size)   // 3
   /// ```
   constructor(parts: BlobPart[] = [], type: string = "") {
-    const pieces: Uint8Array[] = []
-    const enc = new TextEncoder()
-    for (const p of parts) {
-      match (p) {
-        s: string => pieces.push(enc.encode(s)),
-        b: Uint8Array => pieces.push(b.slice()),
-        o: Blob => pieces.push(o.__bytes),
-      }
-    }
-    this.__bytes = __concatBytes(pieces)
+    // (One copy of everything: a blob doesn't change when its parts do.)
+    this.__bytes = __concatBytes(parts.map((p) => __partBytes(p)))
     this.type = type.toLowerCase()
   }
 

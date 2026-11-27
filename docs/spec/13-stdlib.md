@@ -493,8 +493,10 @@ Core globals, as on the Web (#67). An `Event` has a `type` and, once dispatched,
 An `EventTarget` keeps listeners per type: `addEventListener(type, listener, once = false)`
 (the same function added twice runs once), `removeEventListener(type, listener)` (the same
 function), `dispatchEvent(e)` (in the order added). `WebSocket` and `AbortSignal` are
-`EventTarget`s. A `Blob` is immutable bytes with a media `type`: `new Blob(parts, type)` (strings
-as UTF-8, bytes, blobs), `size`, `text()`, `bytes()`, `arrayBuffer()`, `slice(start, end, type)`,
+`EventTarget`s; as in browsers, an `"abort"` listener added after the signal aborted never runs
+(check `signal.aborted`). A `Blob` is immutable bytes with a media `type`: `new Blob(parts, type)`
+(parts: strings as UTF-8, a `BufferSource` — an `ArrayBuffer`, a typed array or a `DataView` —
+or blobs), `size`, `text()`, `bytes()`, `arrayBuffer()`, `slice(start, end, type)`,
 `stream()`.
 
 ### `WebSocket`
@@ -504,8 +506,9 @@ the largest message to receive, a bigger one failing the connection with 1009 be
 #67, also for `upgradeWebSocket(req, protocol, options)`) connects in the background. `readyState` (`CONNECTING`
 0, `OPEN` 1, `CLOSING` 2, `CLOSED` 3), `protocol`, `url`, `bufferedAmount` (the bytes of sent
 messages not written yet, #67); callbacks `onopen(Event)`,
-`onmessage(MessageEvent)` (`data: string | Uint8Array | Blob`: text, or binary as bytes, or a
-`Blob` when `binaryType` is `"blob"`, #67; fragments are joined),
+`onmessage(MessageEvent)` (`data: string | ArrayBuffer | Blob`, as in browsers: text, or
+binary as a `Blob`, or an `ArrayBuffer` when `binaryType` is `"arraybuffer"`, #67; fragments are
+joined), `send(string | BufferSource | Blob)`,
 `onerror(Event)` and `onclose(CloseEvent)` (`code`, `reason`, `wasClean`; 1006 when the
 connection was lost). A `WebSocket` is an `EventTarget` (#67): `addEventListener("message",
 (e) => …)` gets a `MessageEvent`, `"close"` a `CloseEvent`, `"open"`/`"error"` an `Event`
@@ -518,7 +521,13 @@ import { serve, upgradeWebSocket } from "std/http"
 
 async function handle(req: Request): Promise<Response> throws TypeError {
   const { socket, response } = upgradeWebSocket(req)   // throws TypeError if not an upgrade
-  socket.onmessage = (e) => socket.send(e.data)
+  socket.onmessage = (e) => {
+    match (e.data) {
+      s: string => socket.send(s),
+      blob: Blob => socket.send(blob),
+      a: ArrayBuffer => socket.send(a),
+    }
+  }
   response                                            // 101 Switching Protocols
 }
 ```

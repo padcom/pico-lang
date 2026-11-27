@@ -446,34 +446,34 @@ class EventTarget {
   }
 }
 
-/// A received message: text (`string`) or binary (`Uint8Array`) `data`.
+/// A received message: text (`string`) or binary (`Blob` or `ArrayBuffer`) `data`.
 ///
 /// @example
 /// ```ts
 /// const text = new MessageEvent("hi")
 /// match (text.data) {
 ///   s: string => println(`text: ${s}`),              // text: hi
-///   b: Uint8Array => println(`${b.length} bytes`),
-///   blob: Blob => {},
+///   a: ArrayBuffer => println(`${a.byteLength} bytes`),
+///   blob: Blob => println(`${blob.size} bytes`),
 /// }
 /// println(text.type)   // message
 /// ```
 class MessageEvent extends Event {
-  /// The message: a `string` for a text message; a binary one as a `Uint8Array`, or a `Blob`
-  /// when the socket's `binaryType` is `"blob"` (#67).
-  public readonly data: string | Uint8Array | Blob
+  /// The message, as in browsers: a `string` for a text message; a binary one as a `Blob`, or
+  /// an `ArrayBuffer` when the socket's `binaryType` is `"arraybuffer"` (#67).
+  public readonly data: string | ArrayBuffer | Blob
   /// A message event carrying `data`.
   ///
   /// @example
   /// ```ts
-  /// const e = new MessageEvent(Uint8Array.from([1, 2, 3]))
+  /// const e = new MessageEvent(Uint8Array.from([1, 2, 3]).buffer)
   /// match (e.data) {
   ///   s: string => println(s),
-  ///   b: Uint8Array => println(`${b.length} bytes`),   // 3 bytes
+  ///   a: ArrayBuffer => println(`${a.byteLength} bytes`),   // 3 bytes
   ///   blob: Blob => {},
   /// }
   /// ```
-  constructor(data: string | Uint8Array | Blob) {
+  constructor(data: string | ArrayBuffer | Blob) {
     super("message")
     this.data = data
   }
@@ -530,7 +530,13 @@ function __wsText(bytes: Uint8Array): string? {
 /// // An echo server on 127.0.0.1.
 /// async function handle(req: Request): Promise<Response> throws Error {
 ///   const up = upgradeWebSocket(req)
-///   up.socket.onmessage = (e) => up.socket.send(e.data)
+///   up.socket.onmessage = (e) => {
+///     match (e.data) {
+///       s: string => up.socket.send(s),
+///       blob: Blob => up.socket.send(blob),
+///       a: ArrayBuffer => up.socket.send(a),
+///     }
+///   }
 ///   up.response
 /// }
 /// const server = await serve({ port: 0 }, handle)
@@ -571,7 +577,13 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -596,7 +608,13 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -621,7 +639,13 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -656,10 +680,9 @@ class WebSocket extends EventTarget {
   public onclose: ((e: CloseEvent) => void)? = null
   /// Called when connecting fails (an `"error"` event), just before `onclose` with code 1006.
   public onerror: ((e: Event) => void)? = null
-  /// How binary messages arrive (#67): `"arraybuffer"` (the default) as a `Uint8Array` in
-  /// `data`, `"blob"` as a `Blob`. (Browsers default to `"blob"`; here bytes are the usual
-  /// thing to work with.)
-  public binaryType: "arraybuffer" | "blob" = "arraybuffer"
+  /// How binary messages arrive in `data` (#67), as in browsers: `"blob"` (the default) as a
+  /// `Blob`, `"arraybuffer"` as an `ArrayBuffer` (`new Uint8Array(buf, 0)` reads it).
+  public binaryType: "blob" | "arraybuffer" = "blob"
   protocols: string[]
   conn: Conn? = null
   reader: __HttpReader? = null
@@ -719,7 +742,13 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -986,7 +1015,7 @@ class WebSocket extends EventTarget {
             } else if (this.binaryType == "blob") {
               this.emitMessage(new MessageEvent(new Blob([whole])))
             } else {
-              this.emitMessage(new MessageEvent(whole))
+              this.emitMessage(new MessageEvent(__ownBuffer(whole)))
             }
           }
         }
@@ -1092,7 +1121,13 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -1107,8 +1142,8 @@ class WebSocket extends EventTarget {
   ///   ws.onmessage = (e) => {
   ///     match (e.data) {
   ///       s: string => println(`text: ${s}`),             // text: text
-  ///       b: Uint8Array => println(`${b.length} bytes`),  // 3 bytes
-  ///       blob: Blob => {},
+  ///       blob: Blob => println(`${blob.size} bytes`),    // 3 bytes
+  ///       a: ArrayBuffer => {},
   ///     }
   ///     got += 1
   ///     if (got == 2) ws.close()
@@ -1117,7 +1152,7 @@ class WebSocket extends EventTarget {
   /// })
   /// await server.shutdown()
   /// ```
-  public send(data: string | Uint8Array | Blob): void {
+  public send(data: string | BufferSource | Blob): void {
     if (this.readyState == 0) {
       panic("WebSocket: send() before the connection is open")
     }
@@ -1126,9 +1161,8 @@ class WebSocket extends EventTarget {
     }
     match (data) {
       s: string => this.sendCounted(1, new TextEncoder().encode(s)),
-      b: Uint8Array => this.sendCounted(2, b),
-      // (A blob's bytes, as a binary message.)
-      o: Blob => this.sendCounted(2, o.__bytes),
+      // (Binary data or a blob's bytes, as a binary message.)
+      _ => this.sendCounted(2, __partBytes(data)),
     };
   }
 
@@ -1141,7 +1175,13 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)

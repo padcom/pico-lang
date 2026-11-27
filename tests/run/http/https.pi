@@ -23,8 +23,8 @@ async function handle(req: Request): Promise<Response> throws Error {
     ws.onmessage = (e) => {
       match (e.data) {
         s: string => ws.send(s.toUpperCase()),
-        b: Uint8Array => ws.send(b),
-        blob: Blob => {},
+        a: ArrayBuffer => ws.send(a),
+        blob: Blob => ws.send(blob),
       }
     }
     return up.response
@@ -73,7 +73,7 @@ ws.onopen = (e) => ws.send("secret hello")
 ws.onmessage = (e) => {
   match (e.data) {
     s: string => println(`wss got: ${s}`),
-    b: Uint8Array => println("wss got bytes"),
+    a: ArrayBuffer => println("wss got bytes"),
     blob: Blob => {},
   }
   ws.close(1000, "done")
