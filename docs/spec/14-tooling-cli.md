@@ -64,7 +64,10 @@ CPU, but no more than the available memory holds at about 512 MB each). Coverage
 - Registering: `describe(name, fn)` (nesting; names show as `group > test`), `test`/`it(name,
   fn)` with a function, an `async function` or an async lambda (`async () => { … }`),
   `skip`, `only` and `todo`, and the hooks `beforeEach`, `afterEach`, `beforeAll`, `afterAll` (each also taking an async
-  function, which the runner awaits).
+  function, which the runner awaits). `test(name, cases, fn)` makes one test per case (Vitest's
+  `test.each`; `%s` in the name is the case, `%#` its index, otherwise the case follows in
+  parentheses), and `test(name, fn, ms)` gives a time limit: an async test fails with `timed out
+  after <ms> ms` (it isn't stopped), a sync one when it took longer (#70).
   The tests run once the file's top level is done, in order; the file prints one line per test
   and `pico-test: N passed, M failed, K skipped`, and exits with 1 when any failed. So
   `pico run x.test.pi` runs a single file too.

@@ -22,6 +22,8 @@ class __Test {
   public only: bool
   /// The suites it's in, outermost first.
   public suites: __Suite[]
+  /// Milliseconds it may take (0: no limit; #70).
+  public timeout: int = 0
 
   constructor(name: string, sync: (() => void throws Error)?, async_: (() => Promise<void, Error>)?, skip: bool, only: bool, suites: __Suite[]) {
     this.name = name
@@ -108,10 +110,30 @@ function __schedule(r: __Run): void {
   }, 0)
 }
 
-function __register(name: string, sync: (() => void throws Error)?, async_: (() => Promise<void, Error>)?, skip: bool, only: bool): void {
+function __register(name: string, sync: (() => void throws Error)?, async_: (() => Promise<void, Error>)?, skip: bool, only: bool, timeout: int = 0): void {
   const r = __run()
-  r.tests.push(new __Test(name, sync, async_, skip, only, r.stack.slice(0)))
+  const t = new __Test(name, sync, async_, skip, only, r.stack.slice(0))
+  t.timeout = timeout
+  r.tests.push(t)
   __schedule(r)
+}
+
+/// A test case's name (#70): `%s` is the case's string form, `%#` its index; without either,
+/// the case follows in parentheses.
+function __caseName<T>(name: string, c: T, i: int): string {
+  if (!name.includes("%s") && !name.includes("%#")) return `${name} (${c})`
+  return name.replaceAll("%s", `${c}`).replaceAll("%#", `${i}`)
+}
+
+/// Settles `done` once the test's promise has: "" when it resolved, the failure when it
+/// rejected (#70: raced with the timeout).
+async function __settle(p: Promise<void, Error>, done: PromiseWithResolvers<string, never>): Promise<void> {
+  try {
+    await p
+    done.resolve("")
+  } catch (e) {
+    done.resolve(`rejected with ${typeof e}: ${e.message}`)
+  }
 }
 
 /// Groups tests: `fn` runs now and declares them; names show as `group > test`.
@@ -174,6 +196,77 @@ export function test(name: string, fn: () => void throws Error): void {
 /// ```
 export function test(name: string, fn: () => Promise<void, Error>): void {
   __register(name, null, fn, false, false)
+}
+
+/// A test with a time limit in milliseconds (#70): an async one fails with `timed out after
+/// <ms> ms` when it isn't done by then (it isn't stopped: the file goes on); a sync one, which
+/// can't be interrupted, fails afterwards when it took longer.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+/// import { delay } from "std/timers"
+///
+/// test("quick enough", async () => {
+///   await delay(1)
+///   expect(1).toBe(1)
+/// }, 1000)
+/// // pico test: ✓ quick enough
+/// ```
+export function test(name: string, fn: () => Promise<void, Error>, timeout: int): void {
+  __register(name, null, fn, false, false, timeout)
+}
+
+/// A sync test with a time limit in milliseconds (#70): it fails when it took longer.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("fast", () => {
+///   expect([1, 2].length).toBe(2)
+/// }, 1000)
+/// // pico test: ✓ fast
+/// ```
+export function test(name: string, fn: () => void throws Error, timeout: int): void {
+  __register(name, fn, null, false, false, timeout)
+}
+
+/// One test per case (Vitest's `test.each`, #70): `name` with `%s` (the case's string form) or
+/// `%#` (its index) replaced, or the case appended in parentheses.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("doubles %s", [1, 2, 3], (n: int) => {
+///   expect(n * 2 / 2).toBe(n)
+/// })
+/// // pico test: ✓ doubles 1, ✓ doubles 2, ✓ doubles 3
+/// ```
+export function test<T>(name: string, cases: T[], fn: (c: T) => void throws Error): void {
+  for (let i = 0; i < cases.length; i++) {
+    const c = cases[i]
+    __register(__caseName(name, c, i), () => fn(c), null, false, false)
+  }
+}
+
+/// One async test per case (#70), named as for sync cases.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("resolves %s", ["a", "b"], async (s: string) => {
+///   expect(await Promise.resolve(s)).toBe(s)
+/// })
+/// // pico test: ✓ resolves a, ✓ resolves b
+/// ```
+export function test<T>(name: string, cases: T[], fn: (c: T) => Promise<void, Error>): void {
+  for (let i = 0; i < cases.length; i++) {
+    const c = cases[i]
+    __register(__caseName(name, c, i), null, () => fn(c), false, false)
+  }
 }
 
 /// A test (the same as `test`): `fn` runs after the file's top level; a failed expectation, a panic
@@ -590,7 +683,16 @@ async function __runAll(): Promise<void> {
         r.inSync = false
         if (p != null) r.failures.push(p)
         const pr = promise
-        if (pr != null) {
+        if (pr != null && t.timeout > 0) {
+          // Raced with the time limit (#70).
+          const done = Promise.withResolvers<string, never>()
+          __settle(pr, done)
+          const limit = t.timeout
+          const timer = setTimeout(() => done.resolve(`timed out after ${limit} ms`), limit)
+          const res = await done.promise
+          clearTimeout(timer)
+          if (res != "") r.failures.push(res)
+        } else if (pr != null) {
           try {
             await pr
           } catch (e) {
@@ -600,6 +702,9 @@ async function __runAll(): Promise<void> {
       }
     }
     const ms = performance.now() - start
+    if (t.sync != null && t.timeout > 0 && ms > t.timeout as f64) {
+      r.failures.push(`took ${__ms(ms)}, more than its ${t.timeout} ms`)
+    }
     let i = t.suites.length - 1
     while (i >= 0) {
       for (const h of t.suites[i].afterEach) await __hook(r, h)
