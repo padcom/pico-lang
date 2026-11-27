@@ -532,6 +532,11 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Str | Ty::Ref(_) | Ty::Array(_) | Ty::Class(..) => self.ptr().into(),
             // `{ fn, env }`, like an interface value.
             Ty::Iface(..) | Ty::Fn(..) => self.iface_ty().into(),
+            // `{ tag, payload }` (#53).
+            Ty::Unknown => self
+                .cx
+                .struct_type(&[self.cx.i32_type().into(), self.ptr().into()], false)
+                .into(),
             Ty::Struct(sid, _, args) if args.is_empty() => self.structs[sid.0 as usize].into(),
             Ty::Struct(..) => self.struct_llty(t).into(),
             Ty::Enum(..) => self.enum_llty(t).into(),
@@ -2935,11 +2940,38 @@ impl<'ctx> Gen<'ctx, '_> {
                     .unwrap();
                 None
             }
-            Rvalue::Tag(o) => {
+            Rvalue::Tag(o) | Rvalue::UnknownTag(o) => {
                 let v = self.operand(fx, o)?;
                 Some(
                     self.b
                         .build_extract_value(v.into_struct_value(), 0, "tag")
+                        .unwrap(),
+                )
+            }
+            Rvalue::ToUnknown(o, tag) => {
+                // `{ tag, payload }` (#53); no payload is a null pointer.
+                let payload = match o {
+                    Operand::Const(Const::Void) => self.ptr().const_null().into(),
+                    _ => self.operand(fx, o)?,
+                };
+                let t = self.ty(&Ty::Unknown).expect("a type").into_struct_type();
+                let v = self
+                    .b
+                    .build_insert_value(
+                        t.get_undef(),
+                        self.i32().const_int(u64::from(*tag), false),
+                        0,
+                        "",
+                    )
+                    .unwrap();
+                let v = self.b.build_insert_value(v, payload, 1, "").unwrap();
+                Some(v.into_struct_value().into())
+            }
+            Rvalue::FromUnknown(o, _) => {
+                let v = self.operand(fx, o)?;
+                Some(
+                    self.b
+                        .build_extract_value(v.into_struct_value(), 1, "payload")
                         .unwrap(),
                 )
             }

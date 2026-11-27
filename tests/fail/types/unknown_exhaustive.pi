@@ -1,0 +1,7 @@
+// error: E0317
+// at: 5:8
+// A `match` on `unknown` needs `_` (#53): there are infinitely many types.
+const u: unknown = 1
+match (u) {
+  n: int => println(n),
+}

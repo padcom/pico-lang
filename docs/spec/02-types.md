@@ -87,6 +87,24 @@ whose members are members of the wider one (`string | i64` where `string | i64 |
 expected; nullable forms too; #314). Each union is its own tagged type in memory, so the value is
 re-tagged on the way.
 
+`unknown` (#53) is the top type: any value goes where it's expected, `null` included, and is
+boxed with its type. It's used only after narrowing: `match` (type patterns `n: int`, `null`;
+a `_` arm is required, since there are infinitely many types), `is`, or a checked `as` that
+panics when the value has another type. A class object is kept as itself, so `x: Animal` also
+matches a `Dog`, and a test for an interface matches the classes, structs and enums that
+implement it (`x: Named` matches a `User` that `implements Named`). Nothing else applies to an `unknown` (no members, operators or string form).
+```ts
+function describe(u: unknown): string {
+  match (u) {
+    n: int => `int ${n}`,
+    s: string => `string ${s}`,
+    null => "null",
+    _ => "something else",
+  }
+}
+const n = (42 as unknown) as int   // 42
+```
+
 ## 2.6 Enums (sum types)
 Payload enums are the primitive sum type:
 ```ts

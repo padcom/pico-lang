@@ -153,9 +153,10 @@ t.field("age")!.set<int>(user, age + 1)
   Box<T>`, describes `Labeled<int>`, #56). Printing a value and the field accessors dispatch
   the same way.
 - A `Field<T>` has `name`, `type: Type` (`name`, `kind`), `decorators`, `isReadonly`, and
-  typed accessors: `get<V>(obj: T): V`, `set<V>(obj: T, value: V)` and `show(obj: T): string`
-  (the value as a class's default string form shows it, §6.1). There's no `unknown`-typed
-  access: `get`/`set` panic if `V` isn't the field's type, if the object isn't of the class
+  typed accessors: `get<V = unknown>(obj: T): V`, `set<V>(obj: T, value: V)` and `show(obj: T):
+  string` (the value as a class's default string form shows it, §6.1). `get` without a type
+  gives an `unknown` (§2.5) whatever the field's type (#56); `get<V>`/`set` panic if `V` isn't
+  the field's type, if the object isn't of the class
   the field belongs to (a subclass's field on a base-class object), for a `readonly` field
   (`set`), and on a struct (`set`; structs are passed by value).
 - `DecoratorInfo` has `name` (`json.name`) and `args`: each argument's source text

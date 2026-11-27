@@ -1,0 +1,6 @@
+// error: E0308
+// at: 5:16
+// An `unknown` is used after narrowing (#53), not as any type.
+const u: unknown = 1
+const n: int = u
+println(n)

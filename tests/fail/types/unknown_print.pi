@@ -1,0 +1,5 @@
+// error: E0304
+// at: 5:9
+// `unknown` has no string form (#53): narrow it first.
+const u: unknown = 1
+println(u)

@@ -29,6 +29,8 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Str | Ty::Array(_) | Ty::Class(..) | Ty::Ref(_) => out.push(base as u32),
             // `{ data, itable }`.
             Ty::Iface(..) => out.push(base as u32),
+            // `{ tag, payload }` (#53).
+            Ty::Unknown => out.push((base + self.ptr) as u32),
             // `{ fn, env }`: a closure without captures has no environment, which the
             // interpreter can't tell apart, so roots dumps leave environments out.
             Ty::Fn(..) => out.push((base + self.ptr) as u32 | REF_HIDDEN),
