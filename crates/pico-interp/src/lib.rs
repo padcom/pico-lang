@@ -1225,6 +1225,12 @@ impl Interp<'_, '_> {
     fn binary(&self, op: BinOp, x: Value, y: Value, t: &Ty, loc: Loc) -> Result<Value, Panic> {
         use BinOp::*;
         match (x, y, t) {
+            // Function values (`__identical`, #67): the same closure.
+            (Value::Closure(a), Value::Closure(b), _) => Ok(match op {
+                Eq => Value::Bool(Rc::ptr_eq(&a, &b)),
+                Ne => Value::Bool(!Rc::ptr_eq(&a, &b)),
+                _ => unreachable!("type-checked function operator"),
+            }),
             (a, b, Ty::Nullable(_)) => Ok(match op {
                 Eq => Value::Bool(values_eq(&a, &b)),
                 Ne => Value::Bool(!values_eq(&a, &b)),

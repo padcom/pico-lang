@@ -4006,6 +4006,35 @@ impl<'ctx> Gen<'ctx, '_> {
                 }
             }
             Ty::Str => self.str_binary(op, x, y),
+            // Function values (`__identical`, #67): the same code and the same environment.
+            Ty::Fn(..) => {
+                let (a, b) = (x.into_struct_value(), y.into_struct_value());
+                let mut eq = self.cx.bool_type().const_int(1, false);
+                for i in 0..2 {
+                    let (p, q) = (
+                        self.b.build_extract_value(a, i, "").unwrap(),
+                        self.b.build_extract_value(b, i, "").unwrap(),
+                    );
+                    let (p, q) = (
+                        self.b
+                            .build_ptr_to_int(p.into_pointer_value(), self.i64(), "")
+                            .unwrap(),
+                        self.b
+                            .build_ptr_to_int(q.into_pointer_value(), self.i64(), "")
+                            .unwrap(),
+                    );
+                    let same = self
+                        .b
+                        .build_int_compare(IntPredicate::EQ, p, q, "")
+                        .unwrap();
+                    eq = self.b.build_and(eq, same, "").unwrap();
+                }
+                if op == BinOp::Ne {
+                    self.b.build_not(eq, "").unwrap().into()
+                } else {
+                    eq.into()
+                }
+            }
             Ty::Struct(..)
             | Ty::Class(..)
             | Ty::Ref(_)

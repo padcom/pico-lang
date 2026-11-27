@@ -1,0 +1,33 @@
+// expect: listener open
+// expect: onmessage
+// expect: first message only
+// expect: got one
+// expect: onmessage
+// expect: got two
+// expect: closed 1000
+// `WebSocket` is an `EventTarget` (#67): typed `"message"`/`"close"` listeners (after the
+// `on*` property), `once`, and `"open"` through the base form.
+import { serve, upgradeWebSocket } from "std/http"
+async function handle(req: Request): Promise<Response> throws Error {
+  const up = upgradeWebSocket(req)
+  up.socket.onopen = (_e) => {
+    up.socket.send("one")
+    up.socket.send("two")
+    up.socket.close()
+  }
+  return up.response
+}
+const server = await serve({ port: 0 }, handle)
+const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+ws.onmessage = (e) => println("onmessage")
+ws.addEventListener("open", (e) => println(`listener ${e.type}`))
+const once = (e: MessageEvent) => println("first message only")
+ws.addEventListener("message", once, once: true)
+ws.addEventListener("message", (e) => match (e.data) { s: string => println(`got ${s}`), _ => {} })
+await new Promise<void>((resolve, _reject) => {
+  ws.addEventListener("close", (e) => {
+    println(`closed ${e.code}`)
+    resolve(__void())
+  })
+})
+await server.shutdown()

@@ -7687,8 +7687,8 @@ impl FnBuilder<'_, '_> {
     /// comparison (`equals` is dispatched before lowering, so classes compare by reference).
     fn identical_values(&mut self, a: Operand, b: Operand, t: &Ty, span: Span) -> Operand {
         if matches!(t, Ty::Fn(..)) {
-            // (Function values have no identity to compare: never the same.)
-            return Operand::Const(Const::Bool(false));
+            // The same function value: the same closure (#67: `removeEventListener`).
+            return self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Eq, a, b), Ty::Bool, span);
         }
         if matches!(t, Ty::Array(_)) {
             // (Growable arrays have no `==`: their addresses.)

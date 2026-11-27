@@ -112,28 +112,6 @@ function __wsAccept(key: string): string {
   new Base64().encode(__sha1(new TextEncoder().encode(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)))
 }
 
-/// A plain event (`open`, `error`).
-///
-/// @example
-/// ```ts
-/// const e = new Event("open")
-/// println(e.type)   // open
-/// ```
-class Event {
-  /// `"open"` or `"error"`.
-  public readonly type: string
-  /// An event of type `type`.
-  ///
-  /// @example
-  /// ```ts
-  /// const e = new Event("error")
-  /// println(e.type)   // error
-  /// ```
-  constructor(type: string) {
-    this.type = type
-  }
-}
-
 /// A received message: text (`string`) or binary (`Uint8Array`) `data`.
 ///
 /// @example
@@ -145,9 +123,7 @@ class Event {
 /// }
 /// println(text.type)   // message
 /// ```
-class MessageEvent {
-  /// Always `"message"`.
-  public readonly type: string = "message"
+class MessageEvent extends Event {
   /// The message: a `string` for a text message, a `Uint8Array` for a binary one.
   public readonly data: string | Uint8Array
   /// A message event carrying `data`.
@@ -161,6 +137,7 @@ class MessageEvent {
   /// }
   /// ```
   constructor(data: string | Uint8Array) {
+    super("message")
     this.data = data
   }
 }
@@ -173,9 +150,7 @@ class MessageEvent {
 /// const e = new CloseEvent(1000, "done", true)
 /// println(`${e.type} ${e.code} ${e.reason} ${e.wasClean}`)   // close 1000 done true
 /// ```
-class CloseEvent {
-  /// Always `"close"`.
-  public readonly type: string = "close"
+class CloseEvent extends Event {
   /// The close code: the peer's, 1005 when its close frame had none, 1006 when the connection was
   /// lost or failed.
   public readonly code: int
@@ -192,6 +167,7 @@ class CloseEvent {
   /// println(lost.wasClean)   // false
   /// ```
   constructor(code: int, reason: string, wasClean: bool) {
+    super("close")
     this.code = code
     this.reason = reason
     this.wasClean = wasClean
@@ -205,6 +181,18 @@ function __wsText(bytes: Uint8Array): string? {
   } catch (e) {
     return null
   }
+}
+
+/// A typed `"message"` listener of a `WebSocket`.
+struct __MessageListener {
+  f: (e: MessageEvent) => void
+  once: bool
+}
+
+/// A typed `"close"` listener of a `WebSocket`.
+struct __CloseListener {
+  f: (e: CloseEvent) => void
+  once: bool
 }
 
 /// A WebSocket connection. Assign `onopen`, `onmessage`, `onclose` and `onerror` right after
@@ -237,7 +225,7 @@ function __wsText(bytes: Uint8Array): string? {
 /// })
 /// await server.shutdown()
 /// ```
-class WebSocket {
+class WebSocket extends EventTarget {
   // (Getters: static fields would be set up at every program's start.)
   /// `readyState` 0: the handshake hasn't finished yet.
   ///
@@ -340,6 +328,9 @@ class WebSocket {
   public onclose: ((e: CloseEvent) => void)? = null
   /// Called when connecting fails (an `"error"` event), just before `onclose` with code 1006.
   public onerror: ((e: Event) => void)? = null
+  /// `addEventListener("message", …)`'s and `("close", …)`'s, typed (#67).
+  messageListeners: __MessageListener[] = []
+  closeListeners: __CloseListener[] = []
   protocols: string[]
   conn: Conn? = null
   reader: __HttpReader? = null
@@ -351,6 +342,151 @@ class WebSocket {
   caCerts: string = ""
   /// `WebSocketOptions.maxMessageBytes` (0: no limit).
   public __maxMessageBytes: int = 0
+
+  /// Calls `listener` with each message received (after `onmessage`; `once`: only the next).
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve, upgradeWebSocket } from "std/http"
+  ///
+  /// async function handle(req: Request): Promise<Response> throws Error {
+  ///   const up = upgradeWebSocket(req)
+  ///   up.socket.onopen = (_e) => up.socket.send("hi")
+  ///   return up.response
+  /// }
+  /// const server = await serve({ port: 0 }, handle)
+  /// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+  /// await new Promise<void>((resolve, _reject) => {
+  ///   ws.addEventListener("message", (e) => {
+  ///     match (e.data) {
+  ///       s: string => println(s),   // hi
+  ///       _ => {},
+  ///     }
+  ///     resolve(__void())
+  ///   }, once: true)
+  /// })
+  /// ws.close()
+  /// await server.shutdown()
+  /// ```
+  public addEventListener(type: "message", listener: (e: MessageEvent) => void, once: bool = false): void {
+    for (const l of this.messageListeners) {
+      if (__identical(l.f, listener)) {
+        return
+      }
+    }
+    this.messageListeners.push({ f: listener, once })
+  }
+
+  /// Calls `listener` when the connection ends (after `onclose`).
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WebSocket("ws://127.0.0.1:9/")   // nothing listens there
+  /// await new Promise<void>((resolve, _reject) => {
+  ///   ws.addEventListener("close", (e) => {
+  ///     println(e.code)   // 1006
+  ///     resolve(__void())
+  ///   })
+  /// })
+  /// ```
+  public addEventListener(type: "close", listener: (e: CloseEvent) => void, once: bool = false): void {
+    for (const l of this.closeListeners) {
+      if (__identical(l.f, listener)) {
+        return
+      }
+    }
+    this.closeListeners.push({ f: listener, once })
+  }
+
+  /// Calls `listener` with each `"open"` or `"error"` event (or any other type dispatched).
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WebSocket("ws://127.0.0.1:9/")   // nothing listens there
+  /// await new Promise<void>((resolve, _reject) => {
+  ///   ws.addEventListener("error", (e) => {
+  ///     println(e.type)   // error
+  ///     resolve(__void())
+  ///   })
+  /// })
+  /// ```
+  public override addEventListener(type: string, listener: (e: Event) => void, once: bool = false): void {
+    super.addEventListener(type, listener, once)
+  }
+
+  /// Stops calling a `"message"` listener.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WebSocket("ws://127.0.0.1:9/")
+  /// const f = (e: MessageEvent) => println("message")
+  /// ws.addEventListener("message", f)
+  /// ws.removeEventListener("message", f)
+  /// ws.close()
+  /// ```
+  public removeEventListener(type: "message", listener: (e: MessageEvent) => void): void {
+    this.messageListeners = this.messageListeners.filter((l) => !__identical(l.f, listener))
+  }
+
+  /// Stops calling a `"close"` listener.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WebSocket("ws://127.0.0.1:9/")
+  /// const f = (e: CloseEvent) => println(e.code)
+  /// ws.addEventListener("close", f)
+  /// ws.removeEventListener("close", f)
+  /// ws.close()
+  /// ```
+  public removeEventListener(type: "close", listener: (e: CloseEvent) => void): void {
+    this.closeListeners = this.closeListeners.filter((l) => !__identical(l.f, listener))
+  }
+
+  /// Stops calling an `"open"`/`"error"` (or other) listener.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WebSocket("ws://127.0.0.1:9/")
+  /// const f = (e: Event) => println(e.type)
+  /// ws.addEventListener("error", f)
+  /// ws.removeEventListener("error", f)
+  /// ws.close()
+  /// ```
+  public override removeEventListener(type: string, listener: (e: Event) => void): void {
+    super.removeEventListener(type, listener)
+  }
+
+  /// `onmessage`, the `"message"` listeners, then any others of the type.
+  emitMessage(e: MessageEvent): void {
+    const f = this.onmessage
+    if (f != null) {
+      f(e)
+    }
+    for (const l of this.messageListeners.slice(0)) {
+      if (l.once) {
+        this.removeEventListener("message", l.f)
+      }
+      const g = l.f
+      g(e)
+    }
+    this.dispatchEvent(e)
+  }
+
+  /// `onclose`, the `"close"` listeners, then any others of the type.
+  emitClose(e: CloseEvent): void {
+    const f = this.onclose
+    if (f != null) {
+      f(e)
+    }
+    for (const l of this.closeListeners.slice(0)) {
+      if (l.once) {
+        this.removeEventListener("close", l.f)
+      }
+      const g = l.f
+      g(e)
+    }
+    this.dispatchEvent(e)
+  }
 
   /// Connects to `url` (`ws:`/`wss:`, or `http:`/`https:` as the same). An invalid URL or
   /// another scheme throws a `TypeError`. (pico) `options.caCerts` adds trusted certificates
@@ -451,9 +587,11 @@ class WebSocket {
     this.reader = r
     this.readyState = 1
     const f = this.onopen
+    const open = new Event("open")
     if (f != null) {
-      f(new Event("open"))
+      f(open)
     }
+    this.dispatchEvent(open)
     this.receive();
   }
 
@@ -463,9 +601,11 @@ class WebSocket {
       return
     }
     const f = this.onerror
+    const err = new Event("error")
     if (f != null) {
-      f(new Event("error"))
+      f(err)
     }
+    this.dispatchEvent(err)
     this.finish(1006, "", false)
   }
 
@@ -479,10 +619,7 @@ class WebSocket {
     if (c != null) {
       c.close()
     }
-    const f = this.onclose
-    if (f != null) {
-      f(new CloseEvent(code, reason, clean))
-    }
+    this.emitClose(new CloseEvent(code, reason, clean))
   }
 
   /// Text that isn't UTF-8 fails the connection with code 1007 (RFC 6455 §8.1, #48): a close
@@ -581,17 +718,16 @@ class WebSocket {
           const whole = if (parts.length == 1) parts[0] else __concatBytes(parts)
           parts = []
           size = 0
-          const f = this.onmessage
-          if (f != null && this.readyState == 1) {
+          if (this.readyState == 1) {
             if (messageOp == 1) {
               const text = __wsText(whole)
               if (text == null) {
                 await this.failInvalidText()
                 return
               }
-              f(new MessageEvent(text))
+              this.emitMessage(new MessageEvent(text))
             } else {
-              f(new MessageEvent(whole))
+              this.emitMessage(new MessageEvent(whole))
             }
           }
         }

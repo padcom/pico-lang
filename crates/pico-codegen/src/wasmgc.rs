@@ -3749,7 +3749,8 @@ impl<'p> Gen<'p> {
                 }
                 Ok(())
             }
-            Ty::Class(..) => {
+            // (A function value is a closure object: `__identical`, #67.)
+            Ty::Class(..) | Ty::Fn(..) => {
                 match op {
                     Eq => s.ref_eq(),
                     Ne => {

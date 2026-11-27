@@ -1,0 +1,35 @@
+// expect: got ping
+// expect: once
+// expect: got ping
+// expect: true
+// expect: message true
+// expect: plain listener
+// expect: event listener abort
+// expect: true
+// expect: true true false
+//
+// `EventTarget` (#67): listeners per type, once each (the same function added twice runs
+// once), `once`, removal by the function itself; `AbortSignal` is one (its old `() => …`
+// form still works); function values are identical when they're the same closure.
+const t = new EventTarget()
+const hello = (e: Event) => println(`got ${e.type}`)
+t.addEventListener("ping", hello)
+t.addEventListener("ping", hello)
+t.addEventListener("ping", (e) => println("once"), once: true)
+t.dispatchEvent(new Event("ping"))
+t.dispatchEvent(new Event("ping"))
+t.removeEventListener("ping", hello)
+println(t.dispatchEvent(new Event("ping")))
+const m = new MessageEvent("hi")
+println(`${m.type} ${m.target == null}`)
+
+const c = new AbortController()
+c.signal.addEventListener("abort", () => println("plain listener"))
+c.signal.addEventListener("abort", (e) => println(`event listener ${e.type}`))
+c.abort()
+println(c.signal.aborted)
+
+const f = (x: int) => x + 1
+const g = f
+const h = (x: int) => x + 1
+println(`${__identical(f, g)} ${__identical(g, f)} ${__identical(f, h)}`)
