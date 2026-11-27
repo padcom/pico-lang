@@ -1,0 +1,17 @@
+// Overloads that fit equally well: the one whose type parameters have bounds wins, but only
+// if the arguments meet them (#70).
+// expect: object Box
+// expect: any 3
+// expect: any null
+// expect: array 2
+class Box {}
+
+function kind<T>(x: T): string { return `any ${x}` }
+function kind<T extends object>(_x: T): string { return "object Box" }
+function kind<T>(xs: T[]): string { return `array ${xs.length}` }
+
+const none: Box? = null
+println(kind(new Box()))
+println(kind(3))
+println(kind(none))
+println(kind([1, 2]))
