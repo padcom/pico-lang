@@ -24,6 +24,7 @@ async function handle(req: Request): Promise<Response> throws Error {
       match (e.data) {
         s: string => ws.send(s.toUpperCase()),
         b: Uint8Array => ws.send(b),
+        blob: Blob => {},
       }
     }
     return up.response
@@ -73,6 +74,7 @@ ws.onmessage = (e) => {
   match (e.data) {
     s: string => println(`wss got: ${s}`),
     b: Uint8Array => println("wss got bytes"),
+    blob: Blob => {},
   }
   ws.close(1000, "done")
 }

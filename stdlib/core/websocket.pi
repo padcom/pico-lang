@@ -120,12 +120,14 @@ function __wsAccept(key: string): string {
 /// match (text.data) {
 ///   s: string => println(`text: ${s}`),              // text: hi
 ///   b: Uint8Array => println(`${b.length} bytes`),
+///   blob: Blob => {},
 /// }
 /// println(text.type)   // message
 /// ```
 class MessageEvent extends Event {
-  /// The message: a `string` for a text message, a `Uint8Array` for a binary one.
-  public readonly data: string | Uint8Array
+  /// The message: a `string` for a text message; a binary one as a `Uint8Array`, or a `Blob`
+  /// when the socket's `binaryType` is `"blob"` (#67).
+  public readonly data: string | Uint8Array | Blob
   /// A message event carrying `data`.
   ///
   /// @example
@@ -134,9 +136,10 @@ class MessageEvent extends Event {
   /// match (e.data) {
   ///   s: string => println(s),
   ///   b: Uint8Array => println(`${b.length} bytes`),   // 3 bytes
+  ///   blob: Blob => {},
   /// }
   /// ```
-  constructor(data: string | Uint8Array) {
+  constructor(data: string | Uint8Array | Blob) {
     super("message")
     this.data = data
   }
@@ -328,6 +331,10 @@ class WebSocket extends EventTarget {
   public onclose: ((e: CloseEvent) => void)? = null
   /// Called when connecting fails (an `"error"` event), just before `onclose` with code 1006.
   public onerror: ((e: Event) => void)? = null
+  /// How binary messages arrive (#67): `"arraybuffer"` (the default) as a `Uint8Array` in
+  /// `data`, `"blob"` as a `Blob`. (Browsers default to `"blob"`; here bytes are the usual
+  /// thing to work with.)
+  public binaryType: "arraybuffer" | "blob" = "arraybuffer"
   /// `addEventListener("message", …)`'s and `("close", …)`'s, typed (#67).
   messageListeners: __MessageListener[] = []
   closeListeners: __CloseListener[] = []
@@ -726,6 +733,8 @@ class WebSocket extends EventTarget {
                 return
               }
               this.emitMessage(new MessageEvent(text))
+            } else if (this.binaryType == "blob") {
+              this.emitMessage(new MessageEvent(new Blob([whole])))
             } else {
               this.emitMessage(new MessageEvent(whole))
             }
@@ -841,6 +850,7 @@ class WebSocket extends EventTarget {
   ///     match (e.data) {
   ///       s: string => println(`text: ${s}`),             // text: text
   ///       b: Uint8Array => println(`${b.length} bytes`),  // 3 bytes
+  ///       blob: Blob => {},
   ///     }
   ///     got += 1
   ///     if (got == 2) ws.close()
@@ -849,7 +859,7 @@ class WebSocket extends EventTarget {
   /// })
   /// await server.shutdown()
   /// ```
-  public send(data: string | Uint8Array): void {
+  public send(data: string | Uint8Array | Blob): void {
     if (this.readyState == 0) {
       panic("WebSocket: send() before the connection is open")
     }
@@ -859,6 +869,8 @@ class WebSocket extends EventTarget {
     match (data) {
       s: string => this.sendCounted(1, new TextEncoder().encode(s)),
       b: Uint8Array => this.sendCounted(2, b),
+      // (A blob's bytes, as a binary message.)
+      o: Blob => this.sendCounted(2, o.__bytes),
     };
   }
 

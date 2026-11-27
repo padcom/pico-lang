@@ -44,6 +44,7 @@ async function handle(req: Request): Promise<Response> {
         ws.send(s.toUpperCase().replaceAll("X", "x").replace("A LONG MESSAGE", "a long message"))
       },
       b: Uint8Array => ws.send(b),
+      blob: Blob => {},
     }
   }
   ws.onclose = (e) => {
@@ -65,6 +66,7 @@ ws.onmessage = (e) => {
   match (e.data) {
     s: string => println(`client got: ${s}`),
     b: Uint8Array => println(`client got ${b.length} bytes, last ${b[b.length - 1]}`),
+    blob: Blob => {},
   }
   if (replies == 1) {
     const bytes = new Uint8Array(300)

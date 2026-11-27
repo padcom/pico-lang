@@ -488,6 +488,15 @@ a `500` response, a malformed request a `400`. Responses with a known length get
 only. With `cert` and `key` (PEM texts, as in Deno: `serve({ port: 8443, cert, key }, handle)`)
 it serves HTTPS; a client that fails the handshake is disconnected.
 
+### `Event`, `EventTarget`, `Blob`
+Core globals, as on the Web (#67). An `Event` has a `type` and, once dispatched, a `target`.
+An `EventTarget` keeps listeners per type: `addEventListener(type, listener, once = false)`
+(the same function added twice runs once), `removeEventListener(type, listener)` (the same
+function), `dispatchEvent(e)` (in the order added). `WebSocket` and `AbortSignal` are
+`EventTarget`s. A `Blob` is immutable bytes with a media `type`: `new Blob(parts, type)` (strings
+as UTF-8, bytes, blobs), `size`, `text()`, `bytes()`, `arrayBuffer()`, `slice(start, end, type)`,
+`stream()`.
+
 ### `WebSocket`
 A global, as WHATWG WebSockets (RFC 6455): `new WebSocket(url, protocols = [], options = {})`
 (`ws:` or `wss:`; `options.caCerts`, a pico extension, as for `fetch`; `options.maxMessageBytes`,
@@ -495,9 +504,13 @@ the largest message to receive, a bigger one failing the connection with 1009 be
 #67, also for `upgradeWebSocket(req, protocol, options)`) connects in the background. `readyState` (`CONNECTING`
 0, `OPEN` 1, `CLOSING` 2, `CLOSED` 3), `protocol`, `url`, `bufferedAmount` (the bytes of sent
 messages not written yet, #67); callbacks `onopen(Event)`,
-`onmessage(MessageEvent)` (`data: string | Uint8Array`: text or binary; fragments are joined),
+`onmessage(MessageEvent)` (`data: string | Uint8Array | Blob`: text, or binary as bytes, or a
+`Blob` when `binaryType` is `"blob"`, #67; fragments are joined),
 `onerror(Event)` and `onclose(CloseEvent)` (`code`, `reason`, `wasClean`; 1006 when the
-connection was lost); `send(data: string | Uint8Array)` (panics while connecting) and
+connection was lost). A `WebSocket` is an `EventTarget` (#67): `addEventListener("message",
+(e) => …)` gets a `MessageEvent`, `"close"` a `CloseEvent`, `"open"`/`"error"` an `Event`
+(each after its `on*` property; `once: true`; `removeEventListener` by the same function).
+`send(data: string | Uint8Array | Blob)` (panics while connecting) and
 `close(code = 1000, reason = "")` (codes 1000 or 3000–4999, reason ≤ 123 bytes). Pings are
 answered; client frames are masked with random keys. On the server:
 ```ts
