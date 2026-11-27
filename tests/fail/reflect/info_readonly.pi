@@ -1,0 +1,11 @@
+// error: E0334
+// at: 11:3
+// A `TypeInfo` is shared (#56): its fields are readonly.
+import { reflect } from "std/reflect"
+
+class User {
+  public name: string = "ann"
+}
+
+const t = reflect.typeOf<User>()
+t.name = "Admin"

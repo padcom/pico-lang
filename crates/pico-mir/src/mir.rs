@@ -606,7 +606,10 @@ pub enum Rvalue {
     /// A new instance of a class, its fields not yet set (the constructor runs next).
     New(Ty),
     /// Whether a (possibly null) object reference is an instance of the class (or a subclass).
-    InstanceOf(Operand, StructId),
+    /// Whether the object is an instance of the class `Ty::Class(sid, _, args)` or a subclass;
+    /// `args` (empty when not known) pick a generic class's instance where that matters
+    /// (WasmGC's struct types, #56).
+    InstanceOf(Operand, Ty),
     /// Starts showing an object in its default string form: `false` if it's already being
     /// shown further up (a cycle), otherwise it's marked (a `bool`).
     ShowEnter(Operand),
@@ -957,7 +960,7 @@ impl fmt::Display for Rvalue {
             }
             Rvalue::Tag(a) => write!(f, "Tag({a})"),
             Rvalue::New(t) => write!(f, "New({t})"),
-            Rvalue::InstanceOf(a, c) => write!(f, "InstanceOf({a}, class#{})", c.0),
+            Rvalue::InstanceOf(a, c) => write!(f, "InstanceOf({a}, class#{})", class_id(c).0),
             Rvalue::ToIface(a, i) => write!(f, "ToIface({a}, itable#{i})"),
             Rvalue::IfaceData(a) => write!(f, "IfaceData({a})"),
             Rvalue::FnAddr(id) => write!(f, "FnAddr(fn#{})", id.0),
@@ -1127,4 +1130,12 @@ pub fn dump(p: &Program) -> String {
         out.push_str("}\n");
     }
     out
+}
+
+/// The class of an `InstanceOf` target.
+pub fn class_id(t: &Ty) -> StructId {
+    match t {
+        Ty::Class(sid, _, _) => *sid,
+        other => unreachable!("instanceof a non-class {other}"),
+    }
 }

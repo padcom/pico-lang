@@ -21280,7 +21280,7 @@
             {
               "name": "name",
               "kind": "field",
-              "signature": "public name: string",
+              "signature": "public readonly name: string",
               "doc": "<p>As messages show it: <code>Point</code>, <code>Box&lt;i64&gt;</code>, <code>i64[]</code>.</p>\n",
               "examples": [],
               "source": "core/reflect.pi:170",
@@ -21289,7 +21289,7 @@
             {
               "name": "kind",
               "kind": "field",
-              "signature": "public kind: string",
+              "signature": "public readonly kind: string",
               "doc": "<p><code>\"struct\"</code>, <code>\"class\"</code>, <code>\"interface\"</code>, <code>\"enum\"</code>, <code>\"primitive\"</code>, <code>\"array\"</code>, … (as <code>T.kind</code>).</p>\n",
               "examples": [],
               "source": "core/reflect.pi:172",
@@ -21298,7 +21298,7 @@
             {
               "name": "fields",
               "kind": "field",
-              "signature": "public fields: Field<T>[]",
+              "signature": "public readonly fields: Field<T>[]",
               "doc": "<p>Instance fields, inherited ones first (private ones only in the declaring module).</p>\n",
               "examples": [],
               "source": "core/reflect.pi:174",
@@ -21307,7 +21307,7 @@
             {
               "name": "methods",
               "kind": "field",
-              "signature": "public methods: MethodInfo[]",
+              "signature": "public readonly methods: MethodInfo[]",
               "doc": "<p>Instance methods.</p>\n",
               "examples": [],
               "source": "core/reflect.pi:176",
@@ -21316,7 +21316,7 @@
             {
               "name": "interfaces",
               "kind": "field",
-              "signature": "public interfaces: Type[]",
+              "signature": "public readonly interfaces: Type[]",
               "doc": "<p>The interfaces it declares with <code>implements</code>.</p>\n",
               "examples": [],
               "source": "core/reflect.pi:178",
@@ -21325,7 +21325,7 @@
             {
               "name": "base",
               "kind": "field",
-              "signature": "public base: TypeInfo<T>?",
+              "signature": "public readonly base: TypeInfo<T>?",
               "doc": "<p>The base class.</p>\n",
               "examples": [],
               "source": "core/reflect.pi:180",
@@ -21334,7 +21334,7 @@
             {
               "name": "decorators",
               "kind": "field",
-              "signature": "public decorators: DecoratorInfo[]",
+              "signature": "public readonly decorators: DecoratorInfo[]",
               "doc": "<p>The decorators on its declaration, in order.</p>\n",
               "examples": [],
               "source": "core/reflect.pi:182",
@@ -21343,7 +21343,7 @@
             {
               "name": "constructor",
               "kind": "constructor",
-              "signature": "constructor( /// As messages show it: `Point`, `Box<i64>`, `i64[]`. public name: string, /// `\"struct\"`, `\"class\"`, `\"interface\"`, `\"enum\"`, `\"primitive\"`, `\"array\"`, … (as `T.kind`). public kind: string, /// Instance fields, inherited ones first (private ones only in the declaring module). public fields: Field<T>[], /// Instance methods. public methods: MethodInfo[], /// The interfaces it declares with `implements`. public interfaces: Type[], /// The base class. public base: TypeInfo<T>?, /// The decorators on its declaration, in order. public decorators: DecoratorInfo[], )",
+              "signature": "constructor( /// As messages show it: `Point`, `Box<i64>`, `i64[]`. public readonly name: string, /// `\"struct\"`, `\"class\"`, `\"interface\"`, `\"enum\"`, `\"primitive\"`, `\"array\"`, … (as `T.kind`). public readonly kind: string, /// Instance fields, inherited ones first (private ones only in the declaring module). public readonly fields: Field<T>[], /// Instance methods. public readonly methods: MethodInfo[], /// The interfaces it declares with `implements`. public readonly interfaces: Type[], /// The base class. public readonly base: TypeInfo<T>?, /// The decorators on its declaration, in order. public readonly decorators: DecoratorInfo[], )",
               "doc": "<p>Made by the compiler's reflection metadata (<code>reflect.typeOf</code>).</p>\n",
               "examples": [
                 {
@@ -21400,7 +21400,7 @@
             {
               "name": "name",
               "kind": "field",
-              "signature": "public name: string",
+              "signature": "public readonly name: string",
               "doc": "<p>The field's name.</p>\n",
               "examples": [],
               "source": "core/reflect.pi:250",
@@ -21409,7 +21409,7 @@
             {
               "name": "type",
               "kind": "field",
-              "signature": "public type: Type",
+              "signature": "public readonly type: Type",
               "doc": "<p>The field's declared type.</p>\n",
               "examples": [],
               "source": "core/reflect.pi:252",
@@ -21418,7 +21418,7 @@
             {
               "name": "decorators",
               "kind": "field",
-              "signature": "public decorators: DecoratorInfo[]",
+              "signature": "public readonly decorators: DecoratorInfo[]",
               "doc": "<p>The decorators on the field, in order.</p>\n",
               "examples": [],
               "source": "core/reflect.pi:254",
@@ -21427,7 +21427,7 @@
             {
               "name": "isReadonly",
               "kind": "field",
-              "signature": "public isReadonly: bool",
+              "signature": "public readonly isReadonly: bool",
               "doc": "<p>Whether it's <code>readonly</code> (<code>set</code> panics for it).</p>\n",
               "examples": [],
               "source": "core/reflect.pi:256",
@@ -21436,7 +21436,7 @@
             {
               "name": "constructor",
               "kind": "constructor",
-              "signature": "constructor( /// The field's name. public name: string, /// The field's declared type. public type: Type, /// The decorators on the field, in order. public decorators: DecoratorInfo[], /// Whether it's `readonly` (`set` panics for it). public isReadonly: bool, private id: int, )",
+              "signature": "constructor( /// The field's name. public readonly name: string, /// The field's declared type. public readonly type: Type, /// The decorators on the field, in order. public readonly decorators: DecoratorInfo[], /// Whether it's `readonly` (`set` panics for it). public readonly isReadonly: bool, private readonly id: int, )",
               "doc": "<p>Made by the compiler's reflection metadata.</p>\n",
               "examples": [
                 {
@@ -21521,7 +21521,7 @@
             {
               "name": "name",
               "kind": "field",
-              "signature": "public name: string",
+              "signature": "public readonly name: string",
               "doc": "<p>As messages show it: <code>string</code>, <code>Point</code>, <code>i64[]</code>.</p>\n",
               "examples": [],
               "source": "core/reflect.pi:56",
@@ -21530,7 +21530,7 @@
             {
               "name": "kind",
               "kind": "field",
-              "signature": "public kind: string",
+              "signature": "public readonly kind: string",
               "doc": "<p><code>\"struct\"</code>, <code>\"class\"</code>, <code>\"interface\"</code>, <code>\"enum\"</code>, <code>\"primitive\"</code>, <code>\"array\"</code>, … (as\n<code>TypeInfo.kind</code>).</p>\n",
               "examples": [],
               "source": "core/reflect.pi:59",
@@ -21539,7 +21539,7 @@
             {
               "name": "constructor",
               "kind": "constructor",
-              "signature": "constructor( /// As messages show it: `string`, `Point`, `i64[]`. public name: string, /// `\"struct\"`, `\"class\"`, `\"interface\"`, `\"enum\"`, `\"primitive\"`, `\"array\"`, … (as /// `TypeInfo.kind`). public kind: string, )",
+              "signature": "constructor( /// As messages show it: `string`, `Point`, `i64[]`. public readonly name: string, /// `\"struct\"`, `\"class\"`, `\"interface\"`, `\"enum\"`, `\"primitive\"`, `\"array\"`, … (as /// `TypeInfo.kind`). public readonly kind: string, )",
               "doc": "<p>Made by the compiler's reflection metadata.</p>\n",
               "examples": [
                 {

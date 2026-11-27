@@ -352,8 +352,17 @@ impl<'p, 'o> Interp<'p, 'o> {
             this_worker,
             children: Vec::new(),
             waker,
-            globals: (0..program.globals.len())
-                .map(|_| cell(Value::Uninit))
+            // (The lowering's own globals, without a declaration, start out null: #56.)
+            globals: program
+                .globals
+                .iter()
+                .map(|g| {
+                    cell(if g.span.is_none() {
+                        Value::Null
+                    } else {
+                        Value::Uninit
+                    })
+                })
                 .collect(),
             depth: 0,
             exception: None,

@@ -1,0 +1,28 @@
+// `reflect.typeOf` builds one description per type and returns it again (#56): the same
+// object each time, for a value's runtime class too (a subclass seen as its base gets the
+// subclass's description, also cached). Its fields are readonly.
+// expect: same: true
+// expect: same dynamic: true true
+// expect: Dog Animal
+// expect: base same: true
+import { reflect } from "std/reflect"
+
+class Animal {
+  public name: string = "a"
+}
+
+class Dog extends Animal {
+  public barks: bool = true
+}
+
+const a = reflect.typeOf<Animal>()
+const b = reflect.typeOf<Animal>()
+println(`same: ${__identical(a, b)}`)
+const pets: Animal[] = [new Dog(), new Animal(), new Dog()]
+const t0 = reflect.typeOf(pets[0])
+const t1 = reflect.typeOf(pets[1])
+const t2 = reflect.typeOf(pets[2])
+println(`same dynamic: ${__identical(t0, t2)} ${__identical(t1, reflect.typeOf(pets[1]))}`)
+println(`${t0.name} ${t1.name}`)
+const d = reflect.typeOf<Dog>()
+println(`base same: ${__identical(d.base, reflect.typeOf<Dog>().base)}`)

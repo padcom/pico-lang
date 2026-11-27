@@ -1,0 +1,43 @@
+// Generic classes dispatch to their subclasses (#56): printing, `reflect.typeOf(value)` and
+// the field accessors see a `Box<int>` holding a `Labeled<int>` (or an `IntBox`) as that
+// subclass.
+// expect: Labeled (value = 1, label = "one")
+// expect: IntBox (value = 2, doubled = 4)
+// expect: Box (value = 3)
+// expect: Labeled<i64> Labeled<string> IntBox Box<i64>
+// expect: label = "one"
+// expect: Labeled (value = "s", label = "str")
+import { reflect } from "std/reflect"
+
+class Box<T> {
+  public value: T
+  constructor(value: T) {
+    this.value = value
+  }
+}
+
+class Labeled<T> extends Box<T> {
+  public label: string
+  constructor(value: T, label: string) {
+    super(value)
+    this.label = label
+  }
+}
+
+class IntBox extends Box<int> {
+  public doubled: int
+  constructor(value: int) {
+    super(value)
+    this.doubled = value * 2
+  }
+}
+
+const boxes: Box<int>[] = [new Labeled<int>(1, "one"), new IntBox(2), new Box<int>(3)]
+for (const b of boxes) println(b)
+const s: Box<string> = new Labeled<string>("s", "str")
+const names = boxes.map((b: Box<int>) => reflect.typeOf(b).name)
+println(`${names[0]} ${reflect.typeOf(s).name} ${names[1]} ${names[2]}`)
+const t = reflect.typeOf(boxes[0])
+const f = t.field("label")
+if (f != null) println(`label = ${f.show(boxes[0])}`)
+println(s)

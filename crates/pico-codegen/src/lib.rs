@@ -2892,7 +2892,8 @@ impl<'ctx> Gen<'ctx, '_> {
                     .into_pointer_value();
                 Some(self.b.build_is_not_null(v, "pending").unwrap().into())
             }
-            Rvalue::InstanceOf(o, sid) => {
+            Rvalue::InstanceOf(o, class) => {
+                let sid = &mir::class_id(class);
                 let v = self.operand(fx, o)?;
                 let info = self.class_infos[sid.0 as usize].expect("class info");
                 let r = basic(
@@ -4816,7 +4817,8 @@ fn used_classes(p: &pico_mir::Program) -> Vec<bool> {
         for b in &f.blocks {
             for st in &b.stmts {
                 match &st.rvalue {
-                    Rvalue::New(Ty::Class(sid, _, _)) | Rvalue::InstanceOf(_, sid) => {
+                    Rvalue::New(Ty::Class(sid, _, _))
+                    | Rvalue::InstanceOf(_, Ty::Class(sid, _, _)) => {
                         used[sid.0 as usize] = true;
                     }
                     _ => {}
