@@ -8986,6 +8986,7 @@ impl FnBuilder<'_, '_> {
                 | Builtin::WorkerPost
                 | Builtin::WorkerError
                 | Builtin::BufOp
+                | Builtin::ZlibOp
                 | Builtin::Io
                 | Builtin::IoText
                 | Builtin::ComptimeInfo
@@ -9004,6 +9005,7 @@ impl FnBuilder<'_, '_> {
                         | Builtin::WorkerOp
                         | Builtin::WorkerError
                         | Builtin::BufOp
+                        | Builtin::ZlibOp
                         | Builtin::Io
                         | Builtin::IoText
                         | Builtin::ComptimeInfo

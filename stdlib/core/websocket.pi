@@ -29,8 +29,74 @@ struct WebSocketOptions {
   /// Extra trusted certificates (PEM) for `wss:`, besides the system's roots.
   caCerts?: string[]
   /// The largest message to receive, in bytes (its fragments together; #67): a bigger one
-  /// closes the connection with code 1009 before it's read. No limit by default.
+  /// closes the connection with code 1009 before it's read. No limit by default. A compressed
+  /// message counts both ways: as received, and decompressed.
   maxMessageBytes?: int
+  /// Whether to compress messages with permessage-deflate (RFC 7692; #67) when the peer agrees:
+  /// a client offers it, a server accepts an offer. On by default, as in browsers.
+  compress?: bool
+}
+
+/// The `sec-websocket-extensions` answer of a server to a client's `offers` (#67):
+/// permessage-deflate, unless no offer is one it can take (miniz compresses with a 32 KiB
+/// window only, so not one that limits the server's with `server_max_window_bits`).
+function __wsDeflateAnswer(offers: string): string? {
+  for (const offer of offers.split(",")) {
+    const params = offer.split(";").map((p) => p.trim().toLowerCase())
+    if (params[0] != "permessage-deflate") {
+      continue
+    }
+    let ok = true
+    for (let i = 1; i < params.length; i++) {
+      const p = params[i]
+      const name = p.split("=")[0].trim()
+      if (name == "server_max_window_bits") {
+        ok = ok && p.split("=").length == 2 && p.split("=")[1].trim() == "15"
+      } else if (name != "client_max_window_bits" && name != "server_no_context_takeover" &&
+          name != "client_no_context_takeover") {
+        ok = false
+      }
+    }
+    if (ok) {
+      // (Each message is compressed on its own, which `server_no_context_takeover` says.)
+      return "permessage-deflate; server_no_context_takeover"
+    }
+  }
+  return null
+}
+
+/// Whether a server's `sec-websocket-extensions` answer to a client's offer of plain
+/// permessage-deflate is one the client can take (#67): no other extension, and no
+/// `client_max_window_bits` below 15 (miniz compresses with a 32 KiB window only).
+function __wsDeflateAccepted(answer: string): bool {
+  const params = answer.split(";").map((p) => p.trim().toLowerCase())
+  if (params[0] != "permessage-deflate" || answer.indexOf(",") >= 0) {
+    return false
+  }
+  for (let i = 1; i < params.length; i++) {
+    const p = params[i]
+    const name = p.split("=")[0].trim()
+    if (name == "client_max_window_bits") {
+      if (p.split("=").length != 2 || p.split("=")[1].trim() != "15") {
+        return false
+      }
+    } else if (name != "server_max_window_bits" && name != "server_no_context_takeover" &&
+        name != "client_no_context_takeover") {
+      return false
+    }
+  }
+  return true
+}
+
+/// Runs `data` through DEFLATE stream `z` (`__zlib_op` 41): the result, or null when it's
+/// corrupt or decompresses to more than the stream's limit.
+function __zlibRun(z: int, data: Uint8Array): Uint8Array? {
+  const n = __zlib_op(42, z, data.buffer.__handle + data.byteOffset, data.length)
+  if (n < 0) {
+    return null
+  }
+  const h = __zlib_op(43, z, 0, 0)
+  return new Uint8Array(new ArrayBuffer(h, n, true), 0)
 }
 
 /// SHA-1 of `data` (FIPS 180-4), as WebSocket handshakes need it.
@@ -579,6 +645,9 @@ class WebSocket extends EventTarget {
   queued: int = 0
   /// The subprotocol the server chose ("" for none).
   public protocol: string = ""
+  /// The extensions in use, as the handshake agreed them (#67): `"permessage-deflate"` and
+  /// its parameters when messages are compressed, else "".
+  public extensions: string = ""
   /// Called once the connection is open (an `"open"` event).
   public onopen: ((e: Event) => void)? = null
   /// Called for each message received while the socket is open (fragmented ones arrive whole).
@@ -602,6 +671,24 @@ class WebSocket extends EventTarget {
   caCerts: string = ""
   /// `WebSocketOptions.maxMessageBytes` (0: no limit).
   public __maxMessageBytes: int = 0
+  /// `WebSocketOptions.compress`.
+  public __compress: bool = true
+  /// permessage-deflate's streams once agreed (`__zlib_op` handles; 0 before).
+  deflater: int = 0
+  inflater: int = 0
+
+  /// Starts compressing (#67): the handshake agreed permessage-deflate as `answer`. Without
+  /// DEFLATE (the browser build) the socket stays uncompressed and says so.
+  public __startDeflate(answer: string): bool {
+    const d = __zlib_op(41, 0, 0, 0)
+    if (d == 0) {
+      return false
+    }
+    this.deflater = d
+    this.inflater = __zlib_op(41, 1, this.__maxMessageBytes, 0)
+    this.extensions = answer
+    return true
+  }
 
   /// `onmessage`, then the `"message"` listeners (`EventTarget`).
   emitMessage(e: MessageEvent): void {
@@ -658,6 +745,7 @@ class WebSocket extends EventTarget {
     this.protocols = protocols
     this.caCerts = (options.caCerts ?? []).join("\n")
     this.__maxMessageBytes = options.maxMessageBytes ?? 0
+    this.__compress = options.compress ?? true
     if (url.length == 0) {
       // (A server-side socket: `std/http` attaches the connection.)
       this.url = ""
@@ -691,6 +779,12 @@ class WebSocket extends EventTarget {
       if (this.protocols.length > 0) {
         head = `${head}sec-websocket-protocol: ${this.protocols.join(", ")}\r\n`
       }
+      // (Offered only where it can run: the browser build has no DEFLATE.)
+      const probe = if (this.__compress) __zlib_op(41, 0, 0, 0) else 0
+      if (probe != 0) {
+        __zlib_op(44, probe, 0, 0)
+        head = `${head}sec-websocket-extensions: permessage-deflate\r\n`
+      }
       await c.writeText(`${head}\r\n`)
       const r = new __HttpReader(c)
       const text = await r.head()
@@ -704,6 +798,13 @@ class WebSocket extends EventTarget {
       }
       const p = h.headers.get("sec-websocket-protocol")
       this.protocol = if (p != null) p else ""
+      const ext = h.headers.get("sec-websocket-extensions")
+      if (ext != null) {
+        // An extension we didn't offer, or can't take, fails the connection (RFC 6455 §4.1).
+        if (probe == 0 || !__wsDeflateAccepted(ext) || !this.__startDeflate(ext)) {
+          throw new TypeError("the server chose an extension that wasn't offered")
+        }
+      }
       this.__attach(c, r)
     } catch (e) {
       this.fail()
@@ -748,6 +849,12 @@ class WebSocket extends EventTarget {
     }
     this.closed = true
     this.readyState = 3
+    if (this.deflater != 0) {
+      __zlib_op(44, this.deflater, 0, 0)
+      __zlib_op(44, this.inflater, 0, 0)
+      this.deflater = 0
+      this.inflater = 0
+    }
     const c = this.conn
     if (c != null) {
       c.close()
@@ -781,6 +888,8 @@ class WebSocket extends EventTarget {
     }
     let parts: Uint8Array[] = []
     let messageOp = 0
+    // (Whether the message is compressed: RSV1 on its first frame.)
+    let compressed = false
     // (The message's size so far, for `maxMessageBytes`.)
     let size = 0
     try {
@@ -788,6 +897,13 @@ class WebSocket extends EventTarget {
         const h = await r.exact(2)
         const fin = (h[0] & 0x80) != 0
         const op = h[0] & 15
+        // RSV1 marks a compressed message's first frame, once permessage-deflate is agreed;
+        // any other reserved bit is a protocol error (1002).
+        const rsv = h[0] & 0x70
+        if (rsv != 0 && (rsv != 0x40 || this.inflater == 0 || (op != 1 && op != 2))) {
+          await this.failWith(1002)
+          return
+        }
         const masked = (h[1] & 0x80) != 0
         let len = h[1] & 127
         if (len == 126) {
@@ -845,12 +961,20 @@ class WebSocket extends EventTarget {
         }
         if (op == 1 || op == 2) {
           messageOp = op
+          compressed = rsv != 0
         }
         parts.push(payload)
         if (fin) {
-          const whole = if (parts.length == 1) parts[0] else __concatBytes(parts)
+          const joined = if (parts.length == 1) parts[0] else __concatBytes(parts)
           parts = []
           size = 0
+          // (A decompressed message bigger than `maxMessageBytes` fails with 1009 too.)
+          const inflated = if (compressed) __zlibRun(this.inflater, joined) else joined
+          if (inflated == null) {
+            await this.failWith(if (this.__maxMessageBytes > 0) 1009 else 1007)
+            return
+          }
+          const whole: Uint8Array = inflated
           if (this.readyState == 1) {
             if (messageOp == 1) {
               const text = __wsText(whole)
@@ -872,8 +996,8 @@ class WebSocket extends EventTarget {
     }
   }
 
-  /// Writes one frame (masked when this is a client).
-  async sendFrame(op: int, payload: Uint8Array): Promise<void> throws NetError {
+  /// Writes one frame (masked when this is a client; `rsv1` for a compressed message).
+  async sendFrame(op: int, payload: Uint8Array, rsv1: bool = false): Promise<void> throws NetError {
     const c = this.conn
     if (c == null) {
       return
@@ -882,7 +1006,7 @@ class WebSocket extends EventTarget {
     const ext = if (n < 126) 0 else if (n < 65536) 2 else 8
     const maskLen = if (this.client) 4 else 0
     const frame = new Uint8Array(2 + ext + maskLen + n)
-    frame.set(0, 0x80 | op)
+    frame.set(0, 0x80 | (if (rsv1) 0x40 else 0) | op)
     let i = 2
     if (ext == 0) {
       frame.set(1, n | (if (this.client) 0x80 else 0))
@@ -945,6 +1069,14 @@ class WebSocket extends EventTarget {
 
   async sendSafely(op: int, payload: Uint8Array): Promise<void> {
     try {
+      // Messages of a few bytes aren't worth compressing (the flag is per message).
+      if (this.deflater != 0 && payload.length >= 32) {
+        const packed = __zlibRun(this.deflater, payload)
+        if (packed != null) {
+          await this.sendFrame(op, packed, true)
+          return
+        }
+      }
       await this.sendFrame(op, payload)
     } catch (e) {
       this.finish(1006, "", false)

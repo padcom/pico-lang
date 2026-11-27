@@ -1,0 +1,124 @@
+// permessage-deflate (RFC 7692, #67): a client offers it and takes a server's answer; frames
+// with RSV1 are decompressed (RFC 7692 §7.2.3's own examples, whole and fragmented); what
+// the client sends is compressed; a pico server and client agree on it, and a message
+// decompressing past `maxMessageBytes` fails with 1009.
+// expect: offered true
+// expect: raw extensions: permessage-deflate
+// expect: raw message: Hello
+// expect: raw message: Hello
+// expect: client frame compressed: true
+// expect: server extensions: permessage-deflate; server_no_context_takeover
+// expect: client extensions: permessage-deflate; server_no_context_takeover
+// expect: echo ok: true
+// expect: binary ok: true
+// expect: uncompressed extensions: ""
+// expect: bomb close 1009
+import { listen, Conn } from "std/net"
+import { digest } from "std/crypto"
+import { base64 } from "std/encoding"
+import { serve, upgradeWebSocket } from "std/http"
+import { delay } from "std/timers"
+
+let clientFrame: Uint8Array = new Uint8Array(0)
+
+/// A raw server: the handshake by hand, answering permessage-deflate, then "Hello" compressed
+/// (RFC 7692 §7.2.3.1) whole and in two fragments; then it keeps the client's first frame.
+async function rawServer(conn: Conn): Promise<void> throws Error {
+  let head = ""
+  while (!head.includes("\r\n\r\n")) {
+    const chunk = await conn.read()
+    if (chunk == null) return
+    head = head + new TextDecoder().decode(chunk)
+  }
+  let key = ""
+  let offered = false
+  for (const line of head.split("\r\n")) {
+    const l = line.toLowerCase()
+    if (l.startsWith("sec-websocket-key:")) key = line.slice(18).trim()
+    if (l.startsWith("sec-websocket-extensions:") && l.includes("permessage-deflate")) offered = true
+  }
+  println(`offered ${offered}`)
+  const accept = base64.encode(digest("SHA-1", key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+  await conn.writeText(`HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\nconnection: Upgrade\r\nsec-websocket-accept: ${accept}\r\nsec-websocket-extensions: permessage-deflate\r\n\r\n`)
+  await conn.write(Uint8Array.from([0xC1, 7, 0xF2, 0x48, 0xCD, 0xC9, 0xC9, 0x07, 0x00]))
+  await conn.write(Uint8Array.from([0x41, 3, 0xF2, 0x48, 0xCD]))
+  await conn.write(Uint8Array.from([0x80, 4, 0xC9, 0xC9, 0x07, 0x00]))
+  for await (const chunk of conn) {
+    if (clientFrame.length == 0) clientFrame = chunk
+  }
+}
+
+const raw = await listen()
+async function acceptOne(): Promise<void> throws Error {
+  const c = await raw.accept()
+  if (c != null) await rawServer(c)
+}
+acceptOne()
+const rc = new WebSocket(`ws://127.0.0.1:${raw.addr.port}/`)
+let got = 0
+rc.onmessage = (e) => {
+  println(`raw message: ${e.data}`)
+  got += 1
+  if (got == 2) rc.send("a fairly repetitive message, repetitive enough to compress well")
+}
+rc.onopen = (e) => println(`raw extensions: ${rc.extensions}`)
+await delay(400)
+// (RSV1 set, and fewer payload bytes than the 63 sent.)
+println(`client frame compressed: ${clientFrame.length > 2 && (clientFrame[0] & 0x40) != 0 && (clientFrame[1] & 127) < 63}`)
+rc.close()
+raw.close()
+
+// A pico server and client.
+async function handle(req: Request): Promise<Response> throws Error {
+  const up = upgradeWebSocket(req, "", { maxMessageBytes: 200000 })
+  up.socket.onopen = (e) => println(`server extensions: ${up.socket.extensions}`)
+  up.socket.onmessage = (e) => up.socket.send(e.data)
+  up.response
+}
+const server = await serve({ port: 0 }, handle)
+const big = "pico ".repeat(20000)
+const bytes = new Uint8Array(5000)
+for (let i = 0; i < bytes.length; i++) bytes[i] = i % 7
+const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+await new Promise<void>((resolve, _reject) => {
+  ws.onopen = (e) => {
+    println(`client extensions: ${ws.extensions}`)
+    ws.send(big)
+  }
+  ws.onmessage = (e) => {
+    match (e.data) {
+      s: string => {
+        println(`echo ok: ${s == big}`)
+        ws.send(bytes)
+      },
+      b: Uint8Array => {
+        let same = b.length == bytes.length
+        for (let i = 0; same && i < b.length; i++) same = b[i] == bytes[i]
+        println(`binary ok: ${same}`)
+        ws.close()
+      },
+      blob: Blob => {},
+    }
+  }
+  ws.onclose = (e) => resolve(__void())
+})
+
+const plain = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`, [], { compress: false })
+await new Promise<void>((resolve, _reject) => {
+  plain.onopen = (e) => {
+    println(`uncompressed extensions: "${plain.extensions}"`)
+    plain.close()
+  }
+  plain.onclose = (e) => resolve(__void())
+})
+
+// 300 KB of zeros compress to a few hundred bytes, but decompress past the server's limit.
+const bomb = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+await new Promise<void>((resolve, _reject) => {
+  bomb.onopen = (e) => bomb.send(new Uint8Array(300000))
+  bomb.onclose = (e) => {
+    println(`bomb close ${e.code}`)
+    resolve(__void())
+  }
+})
+await server.shutdown()

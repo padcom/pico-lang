@@ -5093,6 +5093,11 @@ impl<'p> Gen<'p> {
                         s.global_get(self.job_global() + 2);
                         self.call_result(fx, s, dest.as_ref(), &Ty::Str)?;
                     }
+                    Callee::Builtin(Builtin::ZlibOp) => {
+                        // (No DEFLATE in the browser build: no stream, so no compression.)
+                        s.i64_const(0);
+                        self.call_result(fx, s, dest.as_ref(), &Ty::Int(IntTy::I64))?;
+                    }
                     Callee::Builtin(Builtin::BufOp) => {
                         let f = self.buf_fn()?;
                         for a in args.iter().take(4) {

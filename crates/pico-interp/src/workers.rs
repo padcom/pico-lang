@@ -729,3 +729,48 @@ impl Interp<'_, '_> {
         }))
     }
 }
+
+unsafe extern "C" {
+    fn pico_zlib_op(op: i64, a: i64, b: i64, c: i64) -> i64;
+}
+
+impl Interp<'_, '_> {
+    /// `__zlib_op` (#67): the C runtime's DEFLATE streams, with the message bytes copied in and
+    /// the result copied out into a new buffer (43 gives its handle).
+    pub(crate) fn zlib_op(&mut self, vals: &[Value]) -> Value {
+        let n = |i: usize| match vals[i] {
+            Value::Int(x) => x as i64,
+            _ => 0,
+        };
+        let (op, a, b, c) = (n(0), n(1), n(2), n(3));
+        Value::Int(i128::from(match op {
+            42 => {
+                let (h, at) = Buffers::at(b);
+                let bytes = {
+                    let bufs = self.shared.buffers.lock().expect("buffers");
+                    bufs.mem
+                        .get(&h)
+                        .and_then(|m| m.get(at..at + c.max(0) as usize))
+                        .map(<[u8]>::to_vec)
+                        .unwrap_or_default()
+                };
+                // SAFETY: `a` is a stream op 41 made; `bytes` is valid for its length.
+                unsafe { pico_zlib_op(42, a, bytes.as_ptr() as i64, bytes.len() as i64) }
+            }
+            43 => {
+                // SAFETY: as above; 43 returns `len` malloc'd bytes, copied and freed here.
+                let out = unsafe {
+                    let len = pico_zlib_op(45, a, 0, 0) as usize;
+                    let p = pico_zlib_op(43, a, 0, 0);
+                    let v = std::slice::from_raw_parts(p as *const u8, len).to_vec();
+                    pico_zlib_op(46, p, 0, 0);
+                    v
+                };
+                self.shared.buffers.lock().expect("buffers").add(out)
+            }
+            // SAFETY: 41 makes a stream; 44 frees one op 41 made.
+            41 | 44 => unsafe { pico_zlib_op(op, a, b, c) },
+            _ => 0,
+        }))
+    }
+}
