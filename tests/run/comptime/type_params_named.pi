@@ -1,0 +1,22 @@
+// `comptime T: type` parameters with named arguments and defaults (#53): arguments fill the
+// written positions by position or name; runtime parameters left out take their defaults.
+// expect: 3
+// expect: 8
+// expect: 4
+// expect: 14
+// expect: x i32 1 2
+// expect: x i32 1 9
+// expect: y string 5 2
+function sizeOf(comptime T: type, extra: int = 0): int {
+  return T.name.length + extra
+}
+function pair(a: string, comptime T: type, b: int = 1, c: int = 2): string {
+  return `${a} ${T.name} ${b} ${c}`
+}
+println(sizeOf(int))
+println(sizeOf(string, extra: 2))
+println(sizeOf(T: bool))
+println(sizeOf(extra: 10, T: char))
+println(pair("x", i32))
+println(pair("x", i32, c: 9))
+println(pair(T: string, a: "y", b: 5))

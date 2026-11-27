@@ -7817,6 +7817,152 @@ impl<'p> Checker<'p> {
         let kept: Vec<&Expr>;
         let args = if type_params.is_empty() {
             args
+        } else if !f.rest {
+            // Written positions are the type parameters' and the runtime parameters', in
+            // declaration order; arguments fill them by position or by name, and runtime
+            // parameters left out take their defaults (#53).
+            let total = f.params.len() + type_params.len();
+            let mut kinds: Vec<Result<usize, usize>> = Vec::with_capacity(total);
+            let mut next_rt = 0;
+            for pos in 0..total {
+                match type_params.iter().find(|(_, k)| *k == pos) {
+                    Some((gi, _)) => kinds.push(Err(*gi)),
+                    None => {
+                        kinds.push(Ok(next_rt));
+                        next_rt += 1;
+                    }
+                }
+            }
+            let name_of = |k: &Result<usize, usize>| match k {
+                Ok(r) => f.local(f.params[*r]).name.clone(),
+                Err(g) => generics[*g].name.clone(),
+            };
+            let mut filled: Vec<Option<usize>> = vec![None; total];
+            let mut next = 0;
+            let mut ok = true;
+            for (i, a) in args.iter().enumerate() {
+                let at = match &a.kind {
+                    ExprKind::NamedArg {
+                        name, name_span, ..
+                    } => match kinds.iter().position(|k| name_of(k) == *name) {
+                        Some(at) => at,
+                        None => {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::WRONG_ARG_COUNT,
+                                    format!("`{}` has no parameter `{name}`", f.name),
+                                )
+                                .primary(*name_span, "unknown parameter"),
+                            );
+                            ok = false;
+                            continue;
+                        }
+                    },
+                    _ => {
+                        while next < total && filled[next].is_some() {
+                            next += 1;
+                        }
+                        next
+                    }
+                };
+                match filled.get_mut(at) {
+                    Some(slot @ None) => *slot = Some(i),
+                    Some(Some(_)) => {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::WRONG_ARG_COUNT,
+                                format!("`{}` is given twice", name_of(&kinds[at])),
+                            )
+                            .primary(a.span, "given again"),
+                        );
+                        ok = false;
+                    }
+                    None => {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::WRONG_ARG_COUNT,
+                                format!(
+                                    "`{}` takes {total} argument{}",
+                                    f.name,
+                                    if total == 1 { "" } else { "s" }
+                                ),
+                            )
+                            .primary(a.span, "one too many"),
+                        );
+                        ok = false;
+                    }
+                }
+            }
+            let mut slots = Vec::new();
+            let mut given: Vec<&Expr> = Vec::new();
+            let mut keep_params = Vec::new();
+            for (pos, kind) in kinds.iter().enumerate() {
+                match (kind, filled[pos]) {
+                    (Err(gi), Some(i)) => {
+                        let a = Self::arg_value(args[i]);
+                        self.set(args[i], Ty::Void);
+                        self.set(a, Ty::Void);
+                        let t = match &a.kind {
+                            ExprKind::TypeValue(t) => t.clone(),
+                            _ => {
+                                self.diags.push(
+                                    Diagnostic::error(
+                                        codes::COMPTIME_ARG,
+                                        format!(
+                                            "the `comptime` parameter `{}` takes a type",
+                                            generics[*gi].name
+                                        ),
+                                    )
+                                    .primary(a.span, "not a type"),
+                                );
+                                Ty::Error
+                            }
+                        };
+                        type_values.push((*gi, t));
+                    }
+                    (Err(gi), None) => {
+                        if ok {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::WRONG_ARG_COUNT,
+                                    format!("`{}` needs the type `{}`", f.name, generics[*gi].name),
+                                )
+                                .primary(e.span, "missing type argument"),
+                            );
+                        }
+                        type_values.push((*gi, Ty::Error));
+                    }
+                    (Ok(r), Some(i)) => {
+                        slots.push(Slot::Arg(i));
+                        given.push(Self::arg_value(args[i]));
+                        keep_params.push(*r);
+                    }
+                    (Ok(r), None) if f.defaults.get(*r).is_some_and(Option::is_some) => {
+                        slots.push(Slot::Default);
+                    }
+                    (Ok(r), None) => {
+                        // (Left for the count check below to report.)
+                        slots.push(Slot::Default);
+                        if ok {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::WRONG_ARG_COUNT,
+                                    format!(
+                                        "`{}` is missing the argument `{}`",
+                                        f.name,
+                                        f.local(f.params[*r]).name
+                                    ),
+                                )
+                                .primary(e.span, "missing argument"),
+                            );
+                        }
+                    }
+                }
+            }
+            self.types.arg_slots.insert(e.id, slots);
+            sig.params = keep_params.iter().map(|r| sig.params[*r].clone()).collect();
+            kept = given;
+            &kept[..]
         } else {
             for (i, k) in &type_params {
                 let Some(a) = args.get(*k) else { continue };

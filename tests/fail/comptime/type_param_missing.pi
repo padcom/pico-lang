@@ -1,0 +1,5 @@
+// error: E0302
+// at: 5:9
+// A `comptime T: type` parameter needs its type, by position or by name (#53).
+function f(comptime T: type, n: int): int { n }
+println(f(n: 1))
