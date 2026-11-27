@@ -356,6 +356,14 @@ export function upgradeWebSocket(
   if (protocol.length > 0) {
     headers.set("sec-websocket-protocol", protocol)
   }
+  // permessage-deflate (#67) when the client offers it in a form we can take.
+  const offers = req.headers.get("sec-websocket-extensions")
+  if (offers != null && (options.compress ?? true)) {
+    const answer = __wsDeflateAnswer(offers)
+    if (answer != null && socket.__startDeflate(answer)) {
+      headers.set("sec-websocket-extensions", answer)
+    }
+  }
   const response = new Response(null, { status: 101, headers })
   response.__upgrade = socket
   const out: WebSocketUpgrade = { socket, response }

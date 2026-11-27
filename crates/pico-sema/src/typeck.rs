@@ -8385,7 +8385,7 @@ impl<'p> Checker<'p> {
                 }
                 (arity(&[2, 3]), Ty::Void)
             }
-            Builtin::BufOp => {
+            Builtin::BufOp | Builtin::ZlibOp => {
                 for a in args {
                     self.check(a, &Expect::new(Ty::INT));
                 }
@@ -8472,7 +8472,7 @@ impl<'p> Checker<'p> {
                 Builtin::CatchPanic => "1 argument",
                 Builtin::PanicTaken => "no arguments",
                 Builtin::WorkerPost => "2 or 3 arguments",
-                Builtin::BufOp | Builtin::MetaEmit => "4 arguments",
+                Builtin::BufOp | Builtin::ZlibOp | Builtin::MetaEmit => "4 arguments",
                 Builtin::Io => "6 arguments",
                 Builtin::IoText => "1 argument",
                 Builtin::ClockMs | Builtin::ReactivityOn => "no arguments",

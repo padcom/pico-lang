@@ -111,7 +111,14 @@ pub fn link_macos(
         };
         format!("linking failed:\n{e}{hint}")
     })?;
-    write_notices(notices, &[(Part::MbedTls, &mbedtls_objects(&runtime))], &[])
+    write_notices(
+        notices,
+        &[
+            (Part::MbedTls, &prefixed(&runtime, "mbedtls_")),
+            (Part::Miniz, &prefixed(&runtime, "miniz_")),
+        ],
+        &[],
+    )
 }
 
 /// Writes the notices file (if one is wanted) from the map the link wrote (#106).
@@ -134,14 +141,15 @@ fn map_arg(args: &mut Vec<String>, notices: Option<&Path>) {
 }
 
 /// Mbed TLS's objects among the runtime's (`mbedtls_*.o`).
-fn mbedtls_objects(runtime: &RuntimeObjects) -> Vec<PathBuf> {
+/// The runtime objects of one vendored library (`mbedtls_`, `miniz_`).
+fn prefixed(runtime: &RuntimeObjects, prefix: &str) -> Vec<PathBuf> {
     runtime
         .lazy
         .iter()
         .filter(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("mbedtls_"))
+                .is_some_and(|n| n.starts_with(prefix))
         })
         .cloned()
         .collect()
@@ -184,7 +192,8 @@ pub fn link_wasi(
     write_notices(
         notices,
         &[
-            (Part::MbedTls, &mbedtls_objects(&runtime)),
+            (Part::MbedTls, &prefixed(&runtime, "mbedtls_")),
+            (Part::Miniz, &prefixed(&runtime, "miniz_")),
             (Part::CompilerRt, &builtins),
         ],
         &[Part::WasiLibc, Part::WasiAdapter],
@@ -225,7 +234,8 @@ pub fn link_browser(
     write_notices(
         notices,
         &[
-            (Part::MbedTls, &mbedtls_objects(&runtime)),
+            (Part::MbedTls, &prefixed(&runtime, "mbedtls_")),
+            (Part::Miniz, &prefixed(&runtime, "miniz_")),
             (Part::CompilerRt, &builtins),
         ],
         &[Part::WasiLibc],
@@ -456,7 +466,8 @@ fn link_gnu(
     write_notices(
         notices,
         &[
-            (Part::MbedTls, &mbedtls_objects(&runtime)),
+            (Part::MbedTls, &prefixed(&runtime, "mbedtls_")),
+            (Part::Miniz, &prefixed(&runtime, "miniz_")),
             (Part::CompilerRt, &builtins),
         ],
         &[],
@@ -527,7 +538,8 @@ fn link_musl(
     write_notices(
         notices,
         &[
-            (Part::MbedTls, &mbedtls_objects(&runtime)),
+            (Part::MbedTls, &prefixed(&runtime, "mbedtls_")),
+            (Part::Miniz, &prefixed(&runtime, "miniz_")),
             (Part::CompilerRt, &builtins),
         ],
         &[Part::Musl],
@@ -591,7 +603,8 @@ pub fn link_windows(
     write_notices(
         notices,
         &[
-            (Part::MbedTls, &mbedtls_objects(&runtime)),
+            (Part::MbedTls, &prefixed(&runtime, "mbedtls_")),
+            (Part::Miniz, &prefixed(&runtime, "miniz_")),
             (Part::Musl, &libm),
             (Part::CompilerRt, &builtins),
         ],
@@ -975,6 +988,9 @@ fn runtime_jobs(t: Target, libc: &Libc) -> Result<Vec<Job>, String> {
         common.push(format!("-I{}", d.display()));
     }
     common.push("-DMBEDTLS_USER_CONFIG_FILE=\"pico_mbedtls_config.h\"".into());
+    let miniz = pico_runtime::miniz_dir();
+    common.push(format!("-I{}", miniz.display()));
+    common.extend(pico_runtime::MINIZ_DEFINES.map(|d| format!("-D{d}")));
     // The bundled tz database (pico_tzdata.c embeds it on Windows).
     let tz = pico_runtime::canonical(&pico_runtime::tzdata_dir())
         .map_err(|e| format!("cannot find the bundled tz database: {e}"))?;
@@ -987,6 +1003,7 @@ fn runtime_jobs(t: Target, libc: &Libc) -> Result<Vec<Job>, String> {
     let mut dirs = vec![
         (pico_runtime::source_dir(), "-std=c11", ""),
         (mbed.join("library"), "-std=c99", "mbedtls_"),
+        (miniz, "-std=c99", "miniz_"),
     ];
     if t.arch == Arch::Wasm32 {
         // The WASI bindings (`runtime/wasi`).

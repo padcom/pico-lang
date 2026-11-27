@@ -186,11 +186,15 @@ pub fn static_lib() -> PathBuf {
     lib_dir().join("libpico_rt.a")
 }
 
-/// The libraries linked after the runtime, in link order: pico's crypto/TLS layer, then
-/// Mbed TLS.
-pub fn crypto_libs() -> [PathBuf; 2] {
+/// The libraries linked after the runtime, in link order: pico's crypto/TLS layer, Mbed TLS,
+/// then DEFLATE (miniz).
+pub fn crypto_libs() -> [PathBuf; 3] {
     let dir = lib_dir();
-    [dir.join("libpico_crypto.a"), dir.join("libpico_mbedtls.a")]
+    [
+        dir.join("libpico_crypto.a"),
+        dir.join("libpico_mbedtls.a"),
+        dir.join("libpico_zlib.a"),
+    ]
 }
 
 /// The directory containing `pico_rt.h`.
@@ -225,6 +229,19 @@ pub fn musl_dir() -> PathBuf {
 pub fn mbedtls_dir() -> PathBuf {
     include_dir().join("../../third_party/mbedtls")
 }
+
+/// The vendored miniz (DEFLATE, #67).
+pub fn miniz_dir() -> PathBuf {
+    include_dir().join("../../third_party/miniz")
+}
+
+/// miniz's configuration (the build script has the same list).
+pub const MINIZ_DEFINES: [&str; 4] = [
+    "MINIZ_NO_STDIO",
+    "MINIZ_NO_ARCHIVE_APIS",
+    "MINIZ_NO_TIME",
+    "MINIZ_NO_ZLIB_COMPATIBLE_NAMES",
+];
 
 /// The bundled IANA tz database (`tzdata.bin`, `windows_zones.inc`; decision 253).
 pub fn tzdata_dir() -> PathBuf {

@@ -856,6 +856,9 @@ pub enum Builtin {
     WorkerError,
     /// `__buf_op(op, a, b, c): int`: `ArrayBuffer`s' off-heap memory (see `pico_buf_op`).
     BufOp,
+    /// `__zlib_op(op, a, b, c): int`: raw DEFLATE streams (`pico_zlib_op`, #67); 0 from op 41
+    /// where there are none (WasmGC).
+    ZlibOp,
     /// `__io(op, a, b, c, s, t): int`: file-system jobs (`pico_io`, spec §13.4);
     /// `__io_text(job): string` a finished job's text.
     Io,
@@ -995,6 +998,7 @@ impl Builtin {
             Builtin::WorkerPost => "__worker_post",
             Builtin::WorkerError => "__worker_error",
             Builtin::BufOp => "__buf_op",
+            Builtin::ZlibOp => "__zlib_op",
             Builtin::Io => "__io",
             Builtin::IoText => "__io_text",
             Builtin::ComptimeInfo => "__comptime_info",
@@ -1032,6 +1036,7 @@ impl Builtin {
             "__worker_post" => Builtin::WorkerPost,
             "__worker_error" => Builtin::WorkerError,
             "__buf_op" => Builtin::BufOp,
+            "__zlib_op" => Builtin::ZlibOp,
             "__io" => Builtin::Io,
             "__io_text" => Builtin::IoText,
             "__comptime_info" => Builtin::ComptimeInfo,
