@@ -59,7 +59,10 @@ describe("add", () => {
 ```
 Tests run in parallel, one isolated process per file (`pico test [paths] [-t filter] [--interp]
 [--watch] [-j jobs] [-u]`; it finds `*.test.pi` files under the paths; `-j` defaults to one file per
-CPU, but no more than the available memory holds at about 512 MB each). Coverage is planned.
+CPU, but no more than the available memory holds at about 512 MB each). `--watch` runs them,
+then again after each change to a `.pi` file under the paths: only the test files that are, or
+import (directly or not), a changed, added or removed file; a file whose imports can't all be
+found always runs (#70). Coverage is planned.
 
 - Registering: `describe(name, fn)` (nesting; names show as `group > test`), `test`/`it(name,
   fn)` with a function, an `async function` or an async lambda (`async () => { … }`),

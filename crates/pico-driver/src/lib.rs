@@ -1060,10 +1060,62 @@ pub fn check_file_with(path: &Path, opts: BuildOptions) -> std::io::Result<Check
     ))
 }
 
+/// The source files `path` imports, directly or not, and `path` itself: what `pico test
+/// --watch` re-runs a test file for. Only parses and follows the imports; `None` if `path`
+/// can't be read or an import can't be found (then any change may matter).
+pub fn import_files(path: &Path) -> Option<Vec<PathBuf>> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let mut sm = SourceMap::new();
+    let file = sm.add(path.display().to_string(), text);
+    let (module, mut diags) = pico_syntax::parse_module(file, &sm.file(file).text);
+    let target_os = comptime_config(&dir, &BuildOptions::default()).os;
+    let mut loaded = modules::load(&mut sm, file, module, &dir, &target_os);
+    diags.append(&mut loaded.diags);
+    if diags
+        .iter()
+        .any(|d| d.code == Some(pico_diag::codes::UNKNOWN_MODULE))
+    {
+        return None;
+    }
+    let mut out: Vec<PathBuf> = sm
+        .ids()
+        .map(|f| PathBuf::from(&sm.file(f).name))
+        .filter(|p| p.is_file())
+        .map(|p| pico_runtime::canonical(&p).unwrap_or(p))
+        .collect();
+    out.sort();
+    out.dedup();
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pico_diag::codes;
+
+    #[test]
+    fn import_files_follow_imports() {
+        let d = std::env::temp_dir().join(format!("pico-import-files-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("a.pi"),
+            "import { b } from \"./b\"\nexport function a(): int { return b() }\n",
+        )
+        .unwrap();
+        std::fs::write(d.join("b.pi"), "export function b(): int { return 1 }\n").unwrap();
+        std::fs::write(d.join("c.pi"), "export function c(): int { return 2 }\n").unwrap();
+        std::fs::write(d.join("t.pi"), "import { a } from \"./a\"\nprint(a())\n").unwrap();
+        std::fs::write(d.join("bad.pi"), "import { x } from \"./nope\"\n").unwrap();
+        let canon = |n: &str| pico_runtime::canonical(&d.join(n)).unwrap();
+        let files = import_files(&d.join("t.pi")).unwrap();
+        for n in ["t.pi", "a.pi", "b.pi"] {
+            assert!(files.contains(&canon(n)), "{n} missing from {files:?}");
+        }
+        assert!(!files.contains(&canon("c.pi")));
+        assert_eq!(import_files(&d.join("bad.pi")), None);
+        std::fs::remove_dir_all(&d).ok();
+    }
 
     #[test]
     fn stages_of_codes() {
