@@ -134,6 +134,9 @@ throws less (§7) and returns the same type or, for object references, a subclas
 instance with other type arguments, such as `Promise<T, never>` for `Promise<T, Error>`).
 An arrow function may leave out trailing parameters of type `void` that the expected type has
 (`delay(10).then(() => "done")` for a `(value: void) => U`, as in TypeScript; decision 323).
+A field or struct field holding a function is called like a method, `button.onClick(x)` (or
+`(button.onClick)(x)`); a method of the same name wins, and a nullable one (`((x: int) => void)?`)
+needs a check first (#331).
 
 ## 5.7 Generators
 ```ts

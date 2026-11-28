@@ -1,0 +1,8 @@
+// A field that doesn't hold a function can't be called (#331).
+// error: E0309
+// at: 8:3
+class Counter {
+  public count: int = 0
+}
+const c = new Counter()
+c.count(1)

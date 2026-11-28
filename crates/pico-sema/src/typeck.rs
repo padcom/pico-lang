@@ -7137,6 +7137,14 @@ impl<'p> Checker<'p> {
                         // The default string form.
                         return Ty::Str;
                     }
+                    if def.field(name).is_some() {
+                        // A field holding a function: `obj.onClick(x)` calls its value (#331).
+                        let ft = self.infer(callee);
+                        if let Some(r) = self.call_fn_value(e, &ft.strip_immutable(), args) {
+                            return r;
+                        }
+                        self.set(callee, Ty::Void);
+                    }
                     let what = if def.field(name).is_some() {
                         "is a field, not a method"
                     } else {
@@ -7224,33 +7232,8 @@ impl<'p> Checker<'p> {
                     }
                     return (**r).clone();
                 }
-                if let Ty::Fn(ps, r, _) = &t {
-                    // A function value. Trailing `void` parameters may be left out (as in
-                    // TS: `resolve()` for a `Promise<void>`).
-                    let given_ok = args.len() < ps.len()
-                        && ps[args.len()..].iter().all(|p| matches!(p, Ty::Void));
-                    if args.len() != ps.len() && !given_ok {
-                        self.diags.push(
-                            Diagnostic::error(
-                                codes::WRONG_ARG_COUNT,
-                                format!(
-                                    "this function takes {} argument{}, but {} were given",
-                                    ps.len(),
-                                    if ps.len() == 1 { "" } else { "s" },
-                                    args.len()
-                                ),
-                            )
-                            .primary(e.span, "wrong number of arguments"),
-                        );
-                        for a in args {
-                            self.infer(a);
-                        }
-                        return (**r).clone();
-                    }
-                    for (a, p) in args.iter().zip(ps.iter()) {
-                        self.check(a, &Expect::new(p.clone()));
-                    }
-                    return (**r).clone();
+                if let Some(r) = self.call_fn_value(e, &t, args) {
+                    return r;
                 }
                 for a in args {
                     self.infer(a);
@@ -7264,6 +7247,39 @@ impl<'p> Checker<'p> {
                 Ty::Error
             }
         }
+    }
+
+    /// A call of a function value of type `t` (a local, a field, any expression); `None` if
+    /// `t` isn't a function type. Trailing `void` parameters may be left out (as in TS:
+    /// `resolve()` for a `Promise<void>`).
+    fn call_fn_value(&mut self, e: &Expr, t: &Ty, args: &[Expr]) -> Option<Ty> {
+        let Ty::Fn(ps, r, _) = t else {
+            return None;
+        };
+        let given_ok =
+            args.len() < ps.len() && ps[args.len()..].iter().all(|p| matches!(p, Ty::Void));
+        if args.len() != ps.len() && !given_ok {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::WRONG_ARG_COUNT,
+                    format!(
+                        "this function takes {} argument{}, but {} were given",
+                        ps.len(),
+                        if ps.len() == 1 { "" } else { "s" },
+                        args.len()
+                    ),
+                )
+                .primary(e.span, "wrong number of arguments"),
+            );
+            for a in args {
+                self.infer(a);
+            }
+            return Some((**r).clone());
+        }
+        for (a, p) in args.iter().zip(ps.iter()) {
+            self.check(a, &Expect::new(p.clone()));
+        }
+        Some((**r).clone())
     }
 
     /// Methods of built-in types (`xs.push(v)`, `r.step(n)`); `None` if `name` isn't one.

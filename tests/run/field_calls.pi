@@ -1,0 +1,47 @@
+// A field holding a function is called like a method: `obj.onClick(x)` (#331). Through
+// `this`, on generic classes, on structs, after reassigning it, and in parentheses.
+// expect: default 3
+// expect: custom 4
+// expect: [hi]
+// expect: 42
+// expect: 5
+// expect: 6
+// expect: none left
+class Button {
+  public onClick: (x: int) => void = (x: int) => { println(`default ${x}`) }
+  private label: (s: string) => string
+
+  constructor() {
+    this.label = (s: string) => `[${s}]`
+  }
+
+  public show(s: string): string { this.label(s) }
+}
+
+class Box<T> {
+  public map: (v: T) => T
+
+  constructor(f: (v: T) => T) {
+    this.map = f
+  }
+}
+
+struct Ops {
+  add: (a: int, b: int) => int
+}
+
+class Done {
+  public resolve: (v: void) => void = (v: void) => { println("none left") }
+}
+
+const b = new Button()
+b.onClick(3)
+b.onClick = (x: int) => { println(`custom ${x}`) }
+b.onClick(4)
+println(b.show("hi"))
+const bx = new Box<int>((v: int) => v + 1)
+println(bx.map(41))
+const o = Ops { add: (a: int, b: int) => a + b }
+println(o.add(2, 3))
+println((o.add)(3, 3))
+new Done().resolve()
