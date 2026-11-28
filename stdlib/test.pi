@@ -4,7 +4,8 @@
 // parallel, one process each; `pico run x.test.pi` runs one.
 //
 // A failed expectation stops a test (it panics, and the runner catches that); after an
-// `await` it's recorded and the test goes on. A panic or an exception in a test fails it.
+// `await` it's recorded and the test goes on. A panic or an exception in a test fails it, a
+// panic after an `await` too (#70).
 // Async tests are `async function`s or async lambdas (`it("…", async () => { … })`). Environment:
 // `PICO_TEST_FILTER` (only tests whose full name contains it), `PICO_TEST_MODE=bench` (run the
 // benchmarks instead), `PICO_TEST_TIMES=0` (no durations, for reproducible output).
@@ -204,8 +205,14 @@ async function __settle(p: Promise<void, Error>, done: PromiseWithResolvers<stri
     await p
     done.resolve("")
   } catch (e) {
-    done.resolve(`rejected with ${typeof e}: ${e.message}`)
+    done.resolve(__rejection(e))
   }
+}
+
+/// How a test's rejection reads: a panic after an `await` as the panic itself (#70).
+function __rejection(e: Error): string {
+  if (e.message.startsWith("panic: ")) return e.message
+  return `rejected with ${typeof e}: ${e.message}`
 }
 
 /// Groups tests: `fn` runs now and declares them; names show as `group > test`.
@@ -697,6 +704,8 @@ async function __hook(r: __Run, h: __Hook): Promise<void> {
 
 async function __runAll(): Promise<void> {
   const r = __run()
+  // A panic after an `await` in a test fails it (#70).
+  __asyncPanicsReject = true
   const mode = env.get("PICO_TEST_MODE") ?? "test"
   const filter = env.get("PICO_TEST_FILTER") ?? ""
   if (mode == "bench") {
@@ -775,7 +784,7 @@ async function __runAll(): Promise<void> {
           try {
             await pr
           } catch (e) {
-            r.failures.push(`rejected with ${typeof e}: ${e.message}`)
+            r.failures.push(__rejection(e))
           }
         }
       }

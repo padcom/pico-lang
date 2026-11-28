@@ -86,7 +86,8 @@ CPU, but no more than the available memory holds at about 512 MB each). Coverage
   (`expect<T extends object>`) tests identity, the same object (#70); `toEqual` compares its
   fields.
 - A failed expectation stops the test (in an async test, after an `await`, it's recorded and the
-  test continues). A panic or an exception escaping the test fails it, and the file goes on.
+  test continues). A panic or an exception escaping the test fails it, and the file goes on
+  (also a panic after an `await` in an async test, #70).
 - Environment: `PICO_TEST_FILTER`, `PICO_TEST_MODE=bench` and `PICO_TEST_TIMES=0` (no durations).
 
 ### Benchmarks

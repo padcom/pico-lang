@@ -10,19 +10,20 @@ global @g4: bool // __tracking
 global @g5: i64 // __reactiveObjects
 global @g6: __Loop? // __loop
 global @g7: i64 // __lastJob
-global @g8: FinalizationRegistry<i64>? // __buffers
-global @g9: i64 // __reclaimedAtCycle
-global @g10: i64 // __bytesSinceReclaim
-global @g11: __ConnPool? // __pool
-global @g12: Map<string, __Zone>? // __zoneCache
-global @g13: Performance // performance
-global @g14: __Xoshiro128? // __mathRng
-global @g15: Crypto // crypto
-global @g16: i64 // Uint8Array.BYTES_PER_ELEMENT
-global @g17: i64 // Int32Array.BYTES_PER_ELEMENT
-global @g18: i64 // Uint32Array.BYTES_PER_ELEMENT
-global @g19: i64 // Float32Array.BYTES_PER_ELEMENT
-global @g20: i64 // Float64Array.BYTES_PER_ELEMENT
+global @g8: bool // __asyncPanicsReject
+global @g9: FinalizationRegistry<i64>? // __buffers
+global @g10: i64 // __reclaimedAtCycle
+global @g11: i64 // __bytesSinceReclaim
+global @g12: __ConnPool? // __pool
+global @g13: Map<string, __Zone>? // __zoneCache
+global @g14: Performance // performance
+global @g15: __Xoshiro128? // __mathRng
+global @g16: Crypto // crypto
+global @g17: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g18: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g19: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g20: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g21: i64 // Float64Array.BYTES_PER_ELEMENT
 
 fn first(_0: i64) -> i64 {
     let _1: i64 // i
@@ -65,31 +66,31 @@ fn never() -> never {
 
 fn Uint8Array.<static>() -> void {
   bb0:
-    @g16 = const 1_i64
+    @g17 = const 1_i64
     return
 }
 
 fn Int32Array.<static>() -> void {
   bb0:
-    @g17 = const 4_i64
+    @g18 = const 4_i64
     return
 }
 
 fn Uint32Array.<static>() -> void {
   bb0:
-    @g18 = const 4_i64
+    @g19 = const 4_i64
     return
 }
 
 fn Float32Array.<static>() -> void {
   bb0:
-    @g19 = const 4_i64
+    @g20 = const 4_i64
     return
 }
 
 fn Float64Array.<static>() -> void {
   bb0:
-    @g20 = const 8_i64
+    @g21 = const 8_i64
     return
 }
 
@@ -118,17 +119,18 @@ fn <main>() -> void {
     @g5 = const 0_i64
     @g6 = const null<__Loop?>
     @g7 = const -1_i64
-    @g8 = const null<FinalizationRegistry<i64>?>
-    @g9 = const -1_i64
-    @g10 = const 0_i64
-    @g11 = const null<__ConnPool?>
-    @g12 = const null<Map<string, __Zone>?>
+    @g8 = const false
+    @g9 = const null<FinalizationRegistry<i64>?>
+    @g10 = const -1_i64
+    @g11 = const 0_i64
+    @g12 = const null<__ConnPool?>
+    @g13 = const null<Map<string, __Zone>?>
     _0 = struct#139{}
-    @g13 = _0
-    @g14 = const null<__Xoshiro128?>
+    @g14 = _0
+    @g15 = const null<__Xoshiro128?>
     _1 = struct#150{}
     _2 = struct#151{_1}
-    @g15 = _2
+    @g16 = _2
     _3 = call first(const 10_i64) -> bb6
   bb6:
     _4 = Eq(_3, const 4_i64)

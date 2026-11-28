@@ -153,12 +153,32 @@ class Promise<T, E extends Throwable = never> {
   /// Runs an async function's step function until it finishes or awaits.
   public __run(step: () => ((k: () => void) => void)? throws E): void {
     let s: ((k: () => void) => void)? = null
-    try {
-      s = step()
-    } catch (e: E) {
-      // (Typed by `E`: a throwable struct or enum too, not only an `Error`.)
-      this.__rejectWith(e)
-      return
+    if (__asyncPanicsReject) {
+      // (`std/test`, #70: a panic after an `await` fails the test instead of ending the file.)
+      let done = false
+      const msg = __catch_panic(() => {
+        try {
+          s = step()
+        } catch (e: E) {
+          this.__rejectWith(e)
+          done = true
+        }
+      })
+      if (msg != null) {
+        this.__reject(new Error(`panic: ${msg}`))
+        return
+      }
+      if (done) {
+        return
+      }
+    } else {
+      try {
+        s = step()
+      } catch (e: E) {
+        // (Typed by `E`: a throwable struct or enum too, not only an `Error`.)
+        this.__rejectWith(e)
+        return
+      }
     }
     if (s != null) {
       s(() => this.__run(step))
@@ -758,3 +778,7 @@ interface AsyncDisposable {
   /// ```
   disposeAsync(): Promise<void>
 }
+
+/// Whether a panic in an async function's step rejects its promise (`panic: <message>`)
+/// instead of ending the program: only while `std/test` runs a test (#70).
+let __asyncPanicsReject = false
