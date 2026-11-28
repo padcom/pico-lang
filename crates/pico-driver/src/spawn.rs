@@ -44,6 +44,57 @@ pub fn output(cmd: &mut Command) -> io::Result<Output> {
     retry_busy(|| cmd.output(), std::thread::sleep)
 }
 
+/// [`output`] with a time limit: a program still running after `limit` is killed, and the
+/// result is an error of kind `TimedOut` (the golden tests: one hung program would otherwise
+/// hang the whole run).
+pub fn output_within(cmd: &mut Command, limit: Duration) -> io::Result<Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = retry_busy(|| cmd.spawn(), std::thread::sleep)?;
+    let read = |r: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut r) = r {
+                let _ = r.read_to_end(&mut buf);
+            }
+            buf
+        })
+    };
+    let out = read(
+        child
+            .stdout
+            .take()
+            .map(|r| Box::new(r) as Box<dyn Read + Send>),
+    );
+    let err = read(
+        child
+            .stderr
+            .take()
+            .map(|r| Box::new(r) as Box<dyn Read + Send>),
+    );
+    let deadline = std::time::Instant::now() + limit;
+    let status = loop {
+        if let Some(st) = child.try_wait()? {
+            break st;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("still running after {} s, killed", limit.as_secs()),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    Ok(Output {
+        status,
+        stdout: out.join().unwrap_or_default(),
+        stderr: err.join().unwrap_or_default(),
+    })
+}
+
 /// `cmd.status()`, tried again while the executable is busy (`ETXTBSY`).
 pub fn status(cmd: &mut Command) -> io::Result<ExitStatus> {
     retry_busy(|| cmd.status(), std::thread::sleep)
@@ -55,6 +106,22 @@ mod tests {
 
     fn busy() -> io::Error {
         io::Error::from(io::ErrorKind::ExecutableFileBusy)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_within_kills_a_program_past_its_limit() {
+        let mut quick = Command::new("sh");
+        quick.args(["-c", "echo hi; echo oops >&2"]);
+        let out = output_within(&mut quick, Duration::from_secs(30)).unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "hi\n");
+        assert_eq!(String::from_utf8_lossy(&out.stderr), "oops\n");
+        let mut hang = Command::new("sleep");
+        hang.arg("30");
+        let started = std::time::Instant::now();
+        let e = output_within(&mut hang, Duration::from_millis(200)).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::TimedOut);
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 
     #[test]

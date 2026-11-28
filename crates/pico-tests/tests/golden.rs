@@ -1,5 +1,7 @@
 //! Runs every fixture in `tests/run` and `tests/fail`.
 //! Set `PICO_TEST_FILTER=substring` to run a subset.
+//! `PICO_TEST_RUN_TIMEOUT=seconds` (300 by default): a program still running after it is killed and
+//! its fixture fails.
 
 use std::path::Path;
 

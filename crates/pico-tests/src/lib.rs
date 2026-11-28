@@ -440,7 +440,7 @@ fn run_native(
     if !wasi {
         cmd.envs(d.env.iter().map(|(k, v)| (k, v)));
     }
-    let out = pico_driver::spawn::output(&mut cmd)
+    let out = pico_driver::spawn::output_within(&mut cmd, run_limit())
         .map_err(|e| format!("cannot run {}: {e}", exe.display()))?;
     let stderr = String::from_utf8_lossy(&out.stderr);
     let code = out.status.code().unwrap_or(-1);
@@ -458,6 +458,16 @@ fn run_native(
         exit: Some(code),
         stderr: stderr.into_owned(),
     })
+}
+
+/// How long one fixture's program may run: `PICO_TEST_RUN_TIMEOUT` seconds, 300 by default
+/// (a hung program fails its fixture instead of hanging the whole run).
+fn run_limit() -> std::time::Duration {
+    let secs = std::env::var("PICO_TEST_RUN_TIMEOUT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(300);
+    std::time::Duration::from_secs(secs)
 }
 
 /// `PICO_TEST_TARGET`, parsed (a bad value is a test failure, not a silent host run).
