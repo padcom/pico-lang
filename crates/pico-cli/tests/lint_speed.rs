@@ -14,8 +14,9 @@ use std::time::Duration;
 
 /// The CPU time `pico lint stdlib` may use, user and system, all threads. With this test's
 /// debug build on linux-arm64 it uses 14–18 s, and used 86 s when lint lowered to MIR: the
-/// budget is over twice the first and under half the second.
-const BUDGET: Duration = Duration::from_secs(40);
+/// budget is over twice the first and under half the second. macOS runners are about twice
+/// as slow (40.6 s on macos-latest, 2026-11-27), so their budget is twice as big.
+const BUDGET: Duration = Duration::from_secs(if cfg!(target_os = "macos") { 80 } else { 40 });
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
