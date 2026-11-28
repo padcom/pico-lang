@@ -607,6 +607,10 @@ impl TestRun {
             );
             return ExitCode::FAILURE;
         }
+        self.run_files(&files)
+    }
+
+    fn run_files(&self, files: &[PathBuf]) -> ExitCode {
         let next = std::sync::atomic::AtomicUsize::new(0);
         let results: std::sync::Mutex<Vec<FileResult>> = std::sync::Mutex::new(Vec::new());
         let print = std::sync::Mutex::new(());
@@ -653,10 +657,13 @@ impl TestRun {
         }
     }
 
-    /// Runs, then again after each change to a `.pi` file under the paths (polled).
+    /// Runs, then again after each change to a `.pi` file under the paths (polled): only the
+    /// test files that the change affects, those that are, or import (directly or not), a
+    /// changed, added or removed file.
     fn watch(&self) -> ExitCode {
-        fn stamp(paths: &[PathBuf]) -> Vec<(PathBuf, std::time::SystemTime)> {
-            fn walk(dir: &Path, out: &mut Vec<(PathBuf, std::time::SystemTime)>) {
+        type Stamps = std::collections::BTreeMap<PathBuf, std::time::SystemTime>;
+        fn stamp(paths: &[PathBuf]) -> Stamps {
+            fn walk(dir: &Path, out: &mut Stamps) {
                 let Ok(rd) = std::fs::read_dir(dir) else {
                     return;
                 };
@@ -664,35 +671,60 @@ impl TestRun {
                     let p = e.path();
                     let name = e.file_name().to_string_lossy().into_owned();
                     if p.is_dir() {
-                        if !name.starts_with('.') && name != "target" {
+                        if !name.starts_with('.') && name != "target" && name != "node_modules" {
                             walk(&p, out);
                         }
                     } else if name.ends_with(".pi")
                         && let Ok(t) = e.metadata().and_then(|m| m.modified())
                     {
-                        out.push((p, t));
+                        out.insert(canonical(&p), t);
                     }
                 }
             }
-            let mut out = Vec::new();
+            let mut out = Stamps::new();
             for p in paths {
                 if p.is_dir() {
                     walk(p, &mut out);
                 } else if let Ok(t) = std::fs::metadata(p).and_then(|m| m.modified()) {
-                    out.push((p.clone(), t));
+                    out.insert(canonical(p), t);
                 }
             }
-            out.sort();
             out
         }
+        fn canonical(p: &Path) -> PathBuf {
+            pico_runtime::canonical(p).unwrap_or_else(|_| p.to_path_buf())
+        }
+        let mut before = stamp(&self.paths);
+        self.run();
         loop {
-            let before = stamp(&self.paths);
-            self.run();
             println!("\nwatching for changes (ctrl-c to stop)…");
-            while stamp(&self.paths) == before {
+            let mut now = stamp(&self.paths);
+            while now == before {
                 std::thread::sleep(std::time::Duration::from_millis(300));
+                now = stamp(&self.paths);
             }
+            let changed: std::collections::BTreeSet<&PathBuf> = before
+                .iter()
+                .filter(|(p, t)| now.get(*p) != Some(t))
+                .map(|(p, _)| p)
+                .chain(now.keys().filter(|p| !before.contains_key(*p)))
+                .collect();
+            let affected: Vec<PathBuf> = self
+                .files()
+                .into_iter()
+                .filter(|f| {
+                    // Unknown imports (one can't be found): any change may matter.
+                    pico_driver::import_files(f)
+                        .is_none_or(|deps| deps.iter().any(|d| changed.contains(d)))
+                })
+                .collect();
             println!();
+            if affected.is_empty() {
+                println!("no test file depends on the change");
+            } else {
+                self.run_files(&affected);
+            }
+            before = now;
         }
     }
 }
